@@ -79,7 +79,7 @@ def send_welcome(message):
     btn_balance = types.KeyboardButton('💰 Check Balance')
     markup.add(btn_buy, btn_balance)
     
-    bot.send_message(message.chat.id, "မင်္ဂလာပါ 🙏 Main Menu:", reply_markup=markup)
+    bot.send_message(message.chat.id, "မင်္ဂလာပါ 🙏\n Main Menu:", reply_markup=markup)
 
 @bot.message_handler(func=lambda message: True)
 def handle_menu(message):
