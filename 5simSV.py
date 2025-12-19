@@ -7,7 +7,7 @@ import os
 from flask import Flask, request
 from telebot import types
 
-# ---------------- FLASK WEB SERVER (Render အတွက်) ----------------
+# --------------- FLASK WEB SERVER (Render အတွက်) ----------------
 app = Flask(__name__)
 
 @app.route('/')
