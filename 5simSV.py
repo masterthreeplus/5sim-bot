@@ -71,7 +71,7 @@ def get_balance():
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     if message.from_user.id != ADMIN_ID:
-        bot.reply_to(message, "⛔ Access Denied")
+        bot.reply_to(message, "⛔ Access Denied,You are not admin!")
         return
 
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
