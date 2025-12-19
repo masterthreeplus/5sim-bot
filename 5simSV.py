@@ -1,11 +1,11 @@
+
 import telebot
 import requests
 import json
 import time
 import threading
 import os
-from flask
- import Flask, request # Flask ကို import လုပ်ပါ
+from flask import Flask, request # Flask ကို import လုပ်ပါ
 from telebot import types
 
 # ---------------- FLASK WEB SERVER (Render အတွက် အရေးကြီးသည်) ----------------
@@ -325,3 +325,4 @@ if __name__ == "__main__":
     keep_alive() # Web Server ကို အရင် Run ပါမယ်
     print("🤖 Bot is running on Render...")
     bot.infinity_polling() # infinity_polling သုံးတာ ပိုငြိမ်ပါတယ်
+     
