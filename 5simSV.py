@@ -42,7 +42,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 
 POPULAR_SERVICES = [
     'telegram', 'whatsapp', 'facebook', 'google', 
-    'tiktok', 'viber', 'line', 'instagram', 'twitter', 'imo'
+    'tiktok', 'viber', 'line', 'instagram', 'twitter', 'imo', 'paysafecard', 'paypal', 'signal'
 ]
 
 # ---------------- HELPER FUNCTIONS ----------------
