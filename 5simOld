@@ -1,319 +1,435 @@
 import telebot
 import requests
+import json
 import time
 import threading
 import os
-import certifi
-from flask import Flask
+from flask import Flask, request
 from telebot import types
-from pymongo import MongoClient
+
+# ---------------- FLASK WEB SERVER (Render အတွက်) ----------------
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running online!"
+
+def run_web_server():
+    # Render PORT or Default 8080
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+
+def keep_alive():
+    t = threading.Thread(target=run_web_server)
+    t.start()
 
 # ---------------- CONFIGURATION ----------------
-# Render Environment Variables (Setup လုပ်ရပါမယ်)
+# Render Environment Variables ထဲမှာ ထည့်ထားရင် အဲ့ဒီကယူမယ်။ မရှိရင် ဒီအောက်က ဟာတွေသုံးမယ်။
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '8534849448:AAHc6uG2QYrrZI46-oNl1EKlZbMqTd6wDTM') 
-API_KEY = os.environ.get('SIM_API_KEY', 'eyJhbGciOiJSUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3OTc2NDYwMTIsImlhdCI6MTc2NjExMDAxMiwicmF5IjoiM2RlZDBiNTExNDc3ZjRkMzk4ZGM4NjA4MjYwMTM2NGQiLCJzdWIiOjM2NzEwNTF9.yo5lYq1tDiZklFRfR1_EeIT8bRVO6ZyO4DdsM-7AnNioVq7HVK28LPPjqEMPuk9Wm5qpPvUwhrJYR2hxyW1-1qMoCO3o633jsGTjzKElRd3cbBT4MizeCLyYaOvWgEh3-JnQBpZz-5WkKBVxKognLzsrilhQT6-fZzDMdfcNlrPRiOiXFdNGTE6ZGMk_0H2faINZ8U2mc6WZVLocB41EmuL3gp7Ra7jZ8PWfmD4-mnttLiRU9y0GxNslaQvnWBphvbN2g-Z_oMhyMPCrTx6DwD39Xnx1vyBc-UbQeAGGDCs50G-jNwSDPHLjss6yNQrryOQbKKMSE5bmBum4fWPEdg')
+API_KEY = os.environ.get('SIM_API_KEY', 'eyJhbGciOiJSUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3OTc2NDYwMTIsImlhdCI6MTc2NjExMDAxMiwicmF5IjoiM2RlZDBiNTExNDc3ZjRkMzk4ZGM4NjA4MjYwMTM2NGQiLCJzdWIiOjM2NzEwNTF9.yo5lYq1tDiZklFRfR1_EeIT8bRVO6ZyO4DdsM-7AnNioVq7HVK28LPPjqEMPuk9Wm5qpPvUwhrJYR2hxyW1-1qMoCO3o633jsGTjzKElRd3cbBT4MizeCLyYaOvWgEh3-JnQBpZz-5WkKBVxKognLzsrilhQT6-fZzDMdfcNlrPRiOiXFdNGTE6ZGMk_0H2faINZ8U2mc6WZVLocB41EmuL3gp7Ra7jZ8PWfmD4-mnttLiRU9y0GxNslaQvnWBphvbN2g-Z_oMhyMPCrTx6DwD39Xnx1vyBc-UbQeAGGDCs50G-jNwSDPHLjss6yNQrryOQbKKMSE5bmBum4fWPEdg')         
 ADMIN_ID = int(os.environ.get('ADMIN_ID', '5127528224'))
-MONGO_URI = os.environ.get('MONGO_URI', 'mongodb+srv://kntdb:dbKnt2Sim@5simdb.mtxe58u.mongodb.net/?appName=5simDB')
 
-# စီးပွားရေး ဆက်တင်များ
-RUB_TO_MMK = 57.38  # 1 RUB = ? MMK (အရင်း)
-PROFIT_PERCENT = 20 # အမြတ် ၂၀ ရာခိုင်နှုန်း တင်ရောင်းမယ်
+# ငွေလဲနှုန်း (1 RUB = 57.38 MMK)
+RUB_TO_MMK = 57.38 
 
-# 5sim API
+# 5sim API Setup
 BASE_URL = "https://5sim.net/v1"
-HEADERS = {'Authorization': 'Bearer ' + API_KEY, 'Accept': 'application/json'}
-
-# ---------------- DATABASE SETUP (MongoDB) ----------------
-# SSL certificate error မတက်အောင် certifi သုံးပါတယ်
-client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
-db = client['5sim_reseller_db']
-users_collection = db['users']
-
-# Database Helpers
-def get_user(user_id):
-    return users_collection.find_one({'_id': user_id})
-
-def register_user(user_id, first_name):
-    if not get_user(user_id):
-        users_collection.insert_one({
-            '_id': user_id,
-            'name': first_name,
-            'balance': 0, # User ဖွင့်စမှာ ပိုက်ဆံ ၀ ကျပ်
-            'joined_at': time.time()
-        })
-
-def update_balance(user_id, amount):
-    # amount က အပေါင်းဆို ပိုက်ဆံတိုး၊ အနှုတ်ဆို ပိုက်ဆံလျော့
-    users_collection.update_one({'_id': user_id}, {'$inc': {'balance': amount}})
-
-# ---------------- FLASK SERVER ----------------
-app = Flask(__name__)
-@app.route('/')
-def home(): return "Reseller Bot is Running!"
-def run_web(): app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
-def keep_alive(): threading.Thread(target=run_web).start()
+HEADERS = {
+    'Authorization': 'Bearer ' + API_KEY,
+    'Accept': 'application/json'
+}
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Popular Services List
-POPULAR_SERVICES = ['telegram', 'whatsapp', 'facebook', 'google', 'tiktok', 'viber']
+POPULAR_SERVICES = [
+    'telegram', 'whatsapp', 'facebook', 'google', 
+    'tiktok', 'viber', 'line', 'instagram', 'twitter', 'imo', 'paysafecard', 'paypal', 'signal'
+]
 
-# ---------------- ADMIN COMMANDS (ပိုက်ဆံဖြည့်ရန်) ----------------
+# ---------------- HELPER FUNCTIONS ----------------
 
-@bot.message_handler(commands=['admin'])
-def admin_panel(message):
-    if message.from_user.id != ADMIN_ID: return
-    
-    msg = (
-        "👑 **Admin Panel Commands:**\n\n"
-        "`/add [UserID] [Amount]` - ပိုက်ဆံဖြည့်ပေးရန်\n"
-        "`/cut [UserID] [Amount]` - ပိုက်ဆံပြန်နုတ်ရန်\n"
-        "`/info [UserID]` - User လက်ကျန်စစ်ရန်\n"
-        "`/my_stats` - Bot အခြေအနေ ကြည့်ရန်"
-    )
-    bot.reply_to(message, msg, parse_mode="Markdown")
+def to_mmk(rub_amount):
+    mmk = int(float(rub_amount) * RUB_TO_MMK)
+    return f"{mmk:,} Ks"
 
-@bot.message_handler(commands=['add'])
-def add_money(message):
-    if message.from_user.id != ADMIN_ID: return
+def get_balance():
     try:
-        _, user_id, amount = message.text.split()
-        user_id = int(user_id)
-        amount = int(amount)
-        
-        update_balance(user_id, amount)
-        bot.reply_to(message, f"✅ User `{user_id}` သို့ `{amount} Ks` ဖြည့်သွင်းပြီးပါပြီ။", parse_mode="Markdown")
-        
-        # User ဆီ Message လှမ်းပို့
-        try:
-            bot.send_message(user_id, f"💰 သင့်အကောင့်ထဲသို့ `{amount} Ks` ဖြည့်သွင်းလိုက်ပါပြီ။", parse_mode="Markdown")
-        except: pass
-            
-    except:
-        bot.reply_to(message, "⚠️ Format မှားနေသည်။\nUse: `/add 123456 1000`")
+        response = requests.get(f"{BASE_URL}/user/profile", headers=HEADERS)
+        data = response.json()
+        if 'balance' in data:
+            rub_bal = data['balance']
+            mmk_bal = to_mmk(rub_bal)
+            return (f"💰 **Balance Information**\n"
+                    f"🇲🇲 MMK: `{mmk_bal}`\n"
+                    f"🇷🇺 RUB: `{rub_bal}`\n"
+                    f"⭐ Rating: {data['rating']}")
+        return "⚠️ Balance ရှာမတွေ့ပါ။ API Key မှန်ကန်မှု ရှိမရှိ စစ်ပါ။"
+    except Exception as e:
+        return f"Error: {e}"
 
-@bot.message_handler(commands=['info'])
-def check_user_info(message):
-    if message.from_user.id != ADMIN_ID: return
-    try:
-        user_id = int(message.text.split()[1])
-        user = get_user(user_id)
-        if user:
-            bot.reply_to(message, f"👤 Name: {user['name']}\n💰 Balance: {user['balance']} Ks")
-        else:
-            bot.reply_to(message, "User not found.")
-    except:
-        bot.reply_to(message, "Use: `/info 123456`")
-
-# ---------------- USER COMMANDS ----------------
+# ---------------- BOT COMMANDS ----------------
 
 @bot.message_handler(commands=['start'])
-def start(message):
-    user_id = message.from_user.id
-    register_user(user_id, message.from_user.first_name)
+def send_welcome(message):
+    if message.from_user.id != ADMIN_ID:
+        bot.reply_to(message, "⛔ Access Denied,You are not admin!")
+        return
+
+    markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    btn_buy = types.KeyboardButton('🛒 Buy Number')
+    btn_balance = types.KeyboardButton('💰 Check Balance')
+    markup.add(btn_buy, btn_balance)
     
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add('🛒 Buy Number', '👤 My Profile', '💎 Top-up', '📞 Support')
-    
-    welcome_text = (f"မင်္ဂလာပါ {message.from_user.first_name}! 👋\n"
-                    f"OTP ဝန်ဆောင်မှုမှ ကြိုဆိုပါတယ်။\n\n"
-                    f"သင့် User ID: `{user_id}`\n"
-                    f"(ငွေဖြည့်လိုပါက User ID ကို Admin ထံပေးပို့ပါ)")
-    
-    bot.send_message(message.chat.id, welcome_text, reply_markup=markup, parse_mode="Markdown")
+    bot.send_message(message.chat.id, "မင်္ဂလာပါ 🙏\n Main Menu:", reply_markup=markup)
 
-@bot.message_handler(func=lambda msg: True)
-def main_menu(message):
-    user_id = message.from_user.id
-    text = message.text
-    
-    if text == '👤 My Profile':
-        user = get_user(user_id)
-        bal = user['balance'] if user else 0
-        bot.reply_to(message, f"🆔 ID: `{user_id}`\n💰 လက်ကျန်ငွေ: `{bal} Ks`", parse_mode="Markdown")
-        
-    elif text == '💎 Top-up':
-        bot.reply_to(message, f"💸 ငွေဖြည့်ရန်အတွက် Admin သို့ ဆက်သွယ်ပါ:\n\nContact: @YourAdminUsername\nYour ID: `{user_id}`", parse_mode="Markdown")
-        
-    elif text == '🛒 Buy Number':
-        show_services(user_id, 0)
+@bot.message_handler(func=lambda message: True)
+def handle_menu(message):
+    if message.from_user.id != ADMIN_ID: return
 
-    elif text == '📞 Support':
-        bot.reply_to(message, "Admin Contact: @YourAdminUsername")
+    if message.text == '💰 Check Balance':
+        bot.reply_to(message, get_balance(), parse_mode="Markdown")
 
-# ---------------- ORDER LOGIC ----------------
+    elif message.text == '🛒 Buy Number':
+        show_services_menu(message.chat.id, page=0)
 
-def calculate_price(rub_price):
-    # ဈေးနှုန်းတွက်နည်း: (Rub * Rate) + 20% Profit
-    cost_mmk = float(rub_price) * RUB_TO_MMK
-    final_price = cost_mmk + (cost_mmk * PROFIT_PERCENT / 100)
-    return int(final_price)
+# ---------------- STEP 1: SERVICE MENU ----------------
 
-def show_services(chat_id, page=0, msg_id=None):
+def show_services_menu(chat_id, page=0, message_id=None):
     markup = types.InlineKeyboardMarkup(row_width=2)
-    buttons = []
-    
-    # Popular List (Page 0)
+    msg_text = ""
+
     if page == 0:
-        for s in POPULAR_SERVICES:
-            buttons.append(types.InlineKeyboardButton(f"📱 {s.capitalize()}", callback_data=f"srv|{s}"))
+        msg_text = "🔥 **Popular Services**:"
+        buttons = []
+        for service in POPULAR_SERVICES:
+            buttons.append(types.InlineKeyboardButton(
+                f"📱 {service.capitalize()}", 
+                callback_data=f"sel_serv|{service}"
+            ))
         markup.add(*buttons)
-        markup.add(types.InlineKeyboardButton("See All ⤵️", callback_data="page|1"))
-        text = "🔥 လူကြိုက်များသော ဝန်ဆောင်မှုများ:"
+        markup.add(types.InlineKeyboardButton("See All Services ⤵️", callback_data="page|1"))
+    
     else:
-        # All Services Logic (Shortened for brevity)
-        text = "🌐 All Services:"
-        markup.add(types.InlineKeyboardButton("⬅️ Back", callback_data="page|0"))
+        msg_text = f"🌐 **All Services** (Page {page}):"
+        try:
+            resp = requests.get(f"{BASE_URL}/guest/products/any/any", headers=HEADERS)
+            data = resp.json()
+            available_services = [k for k, v in data.items() if v.get('Qty', 0) > 0]
+            available_services.sort()
 
-    if msg_id:
-        bot.edit_message_text(text, chat_id, msg_id, reply_markup=markup)
-    else:
-        bot.send_message(chat_id, text, reply_markup=markup)
+            items_per_page = 20
+            start = (page - 1) * items_per_page
+            end = start + items_per_page
+            current_batch = available_services[start:end]
 
-def show_countries(chat_id, service, msg_id=None):
-    try:
-        resp = requests.get(f"{BASE_URL}/guest/prices?product={service}", headers=HEADERS).json()
-        if service not in resp: 
-            bot.send_message(chat_id, "Stock မရှိပါ")
+            buttons = []
+            for service in current_batch:
+                buttons.append(types.InlineKeyboardButton(service, callback_data=f"sel_serv|{service}"))
+            markup.add(*buttons)
+
+            nav_btns = []
+            if page > 1:
+                nav_btns.append(types.InlineKeyboardButton("⬅️ Back", callback_data=f"page|{page-1}"))
+            if end < len(available_services):
+                nav_btns.append(types.InlineKeyboardButton("Next ➡️", callback_data=f"page|{page+1}"))
+            markup.add(*nav_btns)
+
+        except Exception as e:
+            bot.send_message(chat_id, f"Error: {e}")
             return
 
-        countries = []
-        for c_name, ops in resp[service].items():
-            min_price = float('inf')
-            stock = 0
-            for op, det in ops.items():
-                if det['count'] > 0:
-                    stock += det['count']
-                    if det['cost'] < min_price: min_price = det['cost']
+    if message_id:
+        bot.edit_message_text(msg_text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
+    else:
+        bot.send_message(chat_id, msg_text, reply_markup=markup, parse_mode="Markdown")
+
+# ---------------- STEP 2: COUNTRY MENU ----------------
+
+def show_countries_for_service(chat_id, service, page=0, message_id=None):
+    if message_id is None:
+        bot.send_message(chat_id, f"🔍 Searching countries for **{service}**...", parse_mode="Markdown")
+
+    try:
+        url = f"{BASE_URL}/guest/prices?product={service}"
+        resp = requests.get(url, headers=HEADERS)
+        data = resp.json()
+
+        country_list = []
+        if service in data:
+            countries_data = data[service]
+            for country_name, operators in countries_data.items():
+                total_stock = 0
+                min_price = float('inf')
+                
+                # Check stock across all operators
+                for op_name, details in operators.items():
+                    qty = details.get('count', 0)
+                    price = details.get('cost', 0)
+                    if qty > 0:
+                        total_stock += qty
+                        if price < min_price:
+                            min_price = price
+                
+                if total_stock > 0 and min_price != float('inf'):
+                    country_list.append({
+                        'name': country_name, 
+                        'price': min_price, 
+                        'stock': total_stock
+                    })
+
+        country_list.sort(key=lambda x: x['price']) # Sort by cheapest
+
+        if not country_list:
+            bot.send_message(chat_id, f"❌ '{service}' အတွက် Stock မရှိပါ။")
+            return
+
+        # Pagination
+        items_per_page = 15
+        total_pages = (len(country_list) + items_per_page - 1) // items_per_page
+        start = page * items_per_page
+        end = start + items_per_page
+        current_batch = country_list[start:end]
+
+        markup = types.InlineKeyboardMarkup(row_width=1)
+        for c in current_batch:
+            mmk_price = to_mmk(c['price'])
+            flag_text = f"🏳️ {c['name'].upper()} - from {mmk_price} ({c['stock']})"
             
-            if stock > 0:
-                # ဈေးနှုန်းကို User မြင်မယ့်ဈေး (အမြတ်ပေါင်းပြီး) ပြမယ်
-                user_price = calculate_price(min_price)
-                countries.append({'n': c_name, 'p': user_price, 'raw_p': min_price, 's': stock})
+            # NOTE: Callback now goes to OPERATOR selection, not BUY directly
+            # sel_op|country|service
+            cb_data = f"sel_op|{c['name']}|{service}"
+            markup.add(types.InlineKeyboardButton(flag_text, callback_data=cb_data))
+
+        nav_btns = []
+        if page > 0:
+            nav_btns.append(types.InlineKeyboardButton("⬅️ Back", callback_data=f"cnt_pg|{service}|{page-1}"))
+        if end < len(country_list):
+            nav_btns.append(types.InlineKeyboardButton("See More ⤵️", callback_data=f"cnt_pg|{service}|{page+1}"))
+        markup.add(*nav_btns)
         
-        countries.sort(key=lambda x: x['p'])
+        msg_text = f"🌍 **{service.upper()}** Countries (Page {page+1}/{total_pages}):\nSelect a country to see Operators."
+        if message_id:
+            bot.edit_message_text(msg_text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, msg_text, reply_markup=markup, parse_mode="Markdown")
+    except Exception as e:
+        bot.send_message(chat_id, f"Error: {e}")
+
+# ---------------- STEP 3: OPERATOR MENU (NEW) ----------------
+
+def show_operators_for_country(chat_id, country, service, message_id=None):
+    try:
+        url = f"{BASE_URL}/guest/prices?product={service}"
+        resp = requests.get(url, headers=HEADERS)
+        data = resp.json()
+        
+        # Parse data to find operators for specific country
+        # Structure: data[service][country] -> { "op1": {...}, "op2": {...} }
+        operators_data = {}
+        if service in data and country in data[service]:
+            operators_data = data[service][country]
         
         markup = types.InlineKeyboardMarkup(row_width=1)
-        for c in countries[:15]:
-            # buy|country|service|RAW_PRICE
-            # RAW_PRICE ကိုမှတ်ထားမှ ဝယ်တဲ့အခါ ပြန်ချိန်ကိုက်လို့ရမယ် (သို့) ဒီတိုင်း User Price ဖြတ်မယ်
-            btn_txt = f"🏳️ {c['n'].upper()} - {c['p']} Ks"
-            markup.add(types.InlineKeyboardButton(btn_txt, callback_data=f"op|{c['n']}|{service}"))
-            
-        bot.edit_message_text(f"🌍 **{service.upper()}** နိုင်ငံရွေးပါ:", chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
         
+        # 1. Add "Any Operator" Button (Top Priority)
+        # Find min price for 'any' display
+        min_price = float('inf')
+        total_stock = 0
+        for op, details in operators_data.items():
+            cost = details.get('cost', 0)
+            count = details.get('count', 0)
+            total_stock += count
+            if count > 0 and cost < min_price:
+                min_price = cost
+        
+        if total_stock > 0:
+            any_price_mmk = to_mmk(min_price)
+            # buy|country|operator|product|price
+            btn_any = types.InlineKeyboardButton(
+                f"🎲 Any Operator (Auto) - {any_price_mmk} ⚡", 
+                callback_data=f"buy|{country}|any|{service}|{min_price}"
+            )
+            markup.add(btn_any)
+        
+        # 2. Add Specific Operators
+        # Sort operators by price
+        sorted_ops = []
+        for op, details in operators_data.items():
+            if details.get('count', 0) > 0:
+                sorted_ops.append((op, details['cost'], details['count']))
+        
+        sorted_ops.sort(key=lambda x: x[1]) # Sort by price
+
+        for op, cost, count in sorted_ops:
+            op_price_mmk = to_mmk(cost)
+            # buy|country|operator|product|price
+            btn = types.InlineKeyboardButton(
+                f"📶 {op.capitalize()} - {op_price_mmk} ({count})", 
+                callback_data=f"buy|{country}|{op}|{service}|{cost}"
+            )
+            markup.add(btn)
+        
+        # Back button
+        markup.add(types.InlineKeyboardButton("⬅️ Back to Countries", callback_data=f"cnt_pg|{service}|0"))
+
+        msg_text = f"📶 Choose Operator for **{service.upper()}** in **{country.upper()}**:"
+        
+        if message_id:
+            bot.edit_message_text(msg_text, chat_id, message_id, reply_markup=markup, parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, msg_text, reply_markup=markup, parse_mode="Markdown")
+
     except Exception as e:
-        bot.send_message(chat_id, "Error fetching countries")
+        bot.send_message(chat_id, f"Error loading operators: {e}")
 
-def show_operators(chat_id, country, service, msg_id):
-    # Operator Logic (Similar to previous code but simplified)
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("🎲 Auto (Any Operator)", callback_data=f"buy|{country}|any|{service}"))
-    bot.edit_message_text(f"📶 Choose Operator for {country}:", chat_id, msg_id, reply_markup=markup)
 
-# ---------------- BUY HANDLER (CRITICAL: BALANCE CHECK) ----------------
+# ---------------- ACTION FUNCTIONS (CANCEL / BAN) ----------------
+
+def cancel_order(chat_id, order_id):
+    try:
+        url = f"{BASE_URL}/user/cancel/{order_id}"
+        resp = requests.get(url, headers=HEADERS)
+        data = resp.json()
+        if 'status' in data and data['status'] == 'CANCELED':
+            bot.send_message(chat_id, f"✅ Order {order_id} has been **CANCELED**.", parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, f"⚠️ Cancel failed (Already finished?).")
+    except Exception as e:
+        bot.send_message(chat_id, f"Error: {e}")
+
+def ban_order(chat_id, order_id):
+    try:
+        url = f"{BASE_URL}/user/ban/{order_id}"
+        resp = requests.get(url, headers=HEADERS)
+        data = resp.json()
+        if 'status' in data and data['status'] == 'BANNED':
+            bot.send_message(chat_id, f"🚫 Order {order_id} has been **BANNED**. Money refunded.", parse_mode="Markdown")
+        else:
+            bot.send_message(chat_id, f"⚠️ Ban failed.")
+    except Exception as e:
+        bot.send_message(chat_id, f"Error: {e}")
+
+# ---------------- CALLBACK HANDLER ----------------
 
 @bot.callback_query_handler(func=lambda call: True)
-def callbacks(call):
-    user_id = call.message.chat.id
-    data = call.data.split('|')
-    action = data[0]
+def callback_handler(call):
+    chat_id = call.message.chat.id
     
-    if action == 'page': show_services(user_id, int(data[1]), call.message.message_id)
-    elif action == 'srv': show_countries(user_id, data[1], call.message.message_id)
-    elif action == 'op': show_operators(user_id, data[1], data[2], call.message.message_id)
-    
-    elif action == 'buy':
-        country, operator, service = data[1], data[2], data[3]
+    # 1. Service Pagination
+    if call.data.startswith('page|'):
+        page = int(call.data.split('|')[1])
+        show_services_menu(chat_id, page=page, message_id=call.message.message_id)
+
+    # 2. Select Service -> Show Countries
+    elif call.data.startswith('sel_serv|'):
+        service = call.data.split('|')[1]
+        show_countries_for_service(chat_id, service, page=0)
+
+    # 3. Country Pagination
+    elif call.data.startswith('cnt_pg|'):
+        _, service, page = call.data.split('|')
+        show_countries_for_service(chat_id, service, page=int(page), message_id=call.message.message_id)
+
+    # 4. Select Country -> SHOW OPERATORS (New Step)
+    elif call.data.startswith('sel_op|'):
+        _, country, service = call.data.split('|')
+        show_operators_for_country(chat_id, country, service, message_id=call.message.message_id)
+
+    # 5. Buy Number (After selecting Operator or Any)
+    elif call.data.startswith('buy|'):
+        # Data: buy|country|operator|product|price
+        _, country, operator, product, price_rub = call.data.split('|')
         
-        # 1. ဈေးနှုန်း ပြန်စစ်မယ် (API ကနေ လက်ရှိဈေးပြန်ဆွဲ)
+        bot.answer_callback_query(call.id, "Processing Order...")
+        price_mmk = to_mmk(float(price_rub))
+        
+        bot.send_message(chat_id, f"🔄 Buying **{product}** ({country})\n📶 Operator: {operator}\n💰 Cost: {price_mmk}...", parse_mode="Markdown")
+
+        # API Call to Buy
         try:
-            p_url = f"{BASE_URL}/guest/prices?product={service}"
-            prices = requests.get(p_url, headers=HEADERS).json()[service][country]
-            
-            # Operator 'any' အတွက် အနည်းဆုံးဈေးရှာ
-            real_cost_rub = float('inf')
-            if operator == 'any':
-                for op, det in prices.items():
-                    if det['count'] > 0 and det['cost'] < real_cost_rub:
-                        real_cost_rub = det['cost']
-            else:
-                real_cost_rub = prices[operator]['cost']
-            
-            # User ပေးရမည့်ဈေး (Profit ပေါင်းပြီး)
-            user_pay_mmk = calculate_price(real_cost_rub)
-            
-            # 2. User ပိုက်ဆံ လောက်မလောက် စစ်မယ် (Database Check)
-            user = get_user(user_id)
-            if user['balance'] < user_pay_mmk:
-                bot.answer_callback_query(call.id, "❌ လက်ကျန်ငွေ မလုံလောက်ပါ!", show_alert=True)
-                return
+            buy_url = f"{BASE_URL}/user/buy/activation/{country}/{operator}/{product}"
+            resp = requests.get(buy_url, headers=HEADERS)
+            data = resp.json()
 
-            # 3. ပိုက်ဆံလောက်ရင် 5sim မှာ ဝယ်မယ်
-            bot.edit_message_text("🔄 Buying...", user_id, call.message.message_id)
-            
-            buy_url = f"{BASE_URL}/user/buy/activation/{country}/{operator}/{service}"
-            order = requests.get(buy_url, headers=HEADERS).json()
-            
-            if 'phone' in order:
-                # 4. ဝယ်လို့ရပြီဆိုတာနဲ့ User ပိုက်ဆံ ဖြတ်မယ် (Deduct Balance)
-                update_balance(user_id, -user_pay_mmk)
+            if 'phone' in data:
+                phone = data['phone']
+                oid = data['id']
                 
-                oid = order['id']
-                phone = order['phone']
-                
-                # Success Msg
-                msg = (f"✅ **Success!**\n"
-                       f"📱 Phone: `{phone}`\n"
-                       f"💰 Cost: {user_pay_mmk} Ks\n"
-                       f"⏳ SMS စောင့်နေပါ...")
-                
-                # Cancel Button
+                # Success Message with CANCEL & BAN buttons
                 markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton("❌ Cancel (Refund)", callback_data=f"cancel|{oid}|{user_pay_mmk}"))
+                btn_cancel = types.InlineKeyboardButton("❌ Cancel Order", callback_data=f"cancel|{oid}")
+                btn_ban = types.InlineKeyboardButton("🚫 Ban Number", callback_data=f"ban|{oid}")
+                markup.add(btn_cancel, btn_ban)
+
+                msg = (f"✅ **SUCCESS!**\n"
+                       f"📱 Phone: `{phone}`\n"
+                       f"🌍 Country: {country.upper()}\n"
+                       f"📶 Operator: {operator.upper()}\n"
+                       f"💰 Price: {price_mmk}\n"
+                       f"🆔 Order ID: {oid}\n\n"
+                       f"⏳ Waiting for SMS... (15 Mins)")
                 
-                bot.send_message(user_id, msg, reply_markup=markup, parse_mode="Markdown")
-                threading.Thread(target=check_sms_thread, args=(user_id, oid, user_pay_mmk)).start()
+                bot.send_message(chat_id, msg, reply_markup=markup, parse_mode="Markdown")
                 
+                # Start SMS Check Thread
+                threading.Thread(target=check_sms_thread, args=(chat_id, oid)).start()
             else:
-                bot.send_message(user_id, "❌ Out of Stock.")
-                
+                # Handle errors
+                err_msg = "❌ No numbers available."
+                if 'no free phones' in str(data): err_msg += " (Stock Out)"
+                elif 'low balance' in str(data): err_msg += " (Not enough money)"
+                bot.send_message(chat_id, err_msg)
+
         except Exception as e:
-            bot.send_message(user_id, f"Error: {e}")
+            bot.send_message(chat_id, f"Connection Error: {e}")
 
-    elif action == 'cancel':
-        oid, amount = data[1], int(data[2])
-        # Cancel API Call
-        resp = requests.get(f"{BASE_URL}/user/cancel/{oid}", headers=HEADERS).json()
-        if resp.get('status') == 'CANCELED':
-            # 5. Cancel အောင်မြင်ရင် ပိုက်ဆံပြန်အမ်း (Refund)
-            update_balance(user_id, amount)
-            bot.send_message(user_id, f"✅ Order Canceled. {amount} Ks has been refunded.")
-        else:
-            bot.send_message(user_id, "⚠️ Cannot cancel (SMS received or expired).")
+    # Handle Cancel & Ban
+    elif call.data.startswith('cancel|'):
+        oid = call.data.split('|')[1]
+        cancel_order(chat_id, oid)
+    
+    elif call.data.startswith('ban|'):
+        oid = call.data.split('|')[1]
+        ban_order(chat_id, oid)
 
-# ---------------- SMS CHECKER (Auto Refund on Timeout) ----------------
+# ---------------- THREADED SMS CHECKER (15 Minutes) ----------------
 
-def check_sms_thread(user_id, order_id, cost_mmk):
-    for i in range(180): # 15 mins
+def check_sms_thread(chat_id, order_id):
+    # 15 minutes = 900 seconds
+    # Check every 5 seconds -> 900 / 5 = 180 times
+    # Let's make it 200 times (~16 mins) to be safe
+    
+    for i in range(200): 
         time.sleep(5)
         try:
-            data = requests.get(f"{BASE_URL}/user/check/{order_id}", headers=HEADERS).json()
-            status = data.get('status')
+            url = f"{BASE_URL}/user/check/{order_id}"
+            resp = requests.get(url, headers=HEADERS)
+            data = resp.json()
             
-            if status == 'RECEIVED':
-                code = data['sms'][0]['code']
-                bot.send_message(user_id, f"📩 **SMS CODE:** `{code}`", parse_mode="Markdown")
-                return
-            elif status == 'CANCELED':
-                return # Already handled manually
-        except: pass
-    
-    # Timeout -> Cancel & Refund
-    requests.get(f"{BASE_URL}/user/cancel/{order_id}", headers=HEADERS)
-    update_balance(user_id, cost_mmk)
-    bot.send_message(user_id, f"⚠️ Timeout! Order canceled and {cost_mmk} Ks refunded.")
+            status = data.get('status')
 
+            if status == 'RECEIVED':
+                sms_list = data.get('sms', [])
+                if sms_list:
+                    code = sms_list[0]['code']
+                    full_text = sms_list[0].get('text', '')
+                    bot.send_message(chat_id, f"📩 **SMS RECEIVED!**\n\nCode: `{code}`\n\nMsg: {full_text}", parse_mode="Markdown")
+                    return # Stop thread
+            
+            elif status == 'CANCELED' or status == 'TIMEOUT' or status == 'BANNED':
+                return # Stop checking
+            
+            elif status == 'FINISHED':
+                return
+
+        except:
+            pass
+    
+    # If loop finishes without SMS (Timeout)
+    bot.send_message(chat_id, f"⚠️ Order {order_id}: 15 မိနစ်ပြည့်သည်အထိ SMS မဝင်ပါ။ Order Cancel လိုက်ပါပြီ။")
+    cancel_order(chat_id, order_id)
+
+# ---------------- RUN (RENDER READY) ----------------
 if __name__ == "__main__":
     keep_alive()
+    print("🤖 Bot is running with Operator Selection & 15min Wait...")
     bot.infinity_polling()
