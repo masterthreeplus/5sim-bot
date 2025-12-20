@@ -55,7 +55,7 @@ def keep_alive(): threading.Thread(target=run_web).start()
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-POPULAR_SERVICES = ['telegram', 'whatsapp', 'facebook', 'google', 'tiktok', 'viber', 'line', 'instagram']
+POPULAR_SERVICES = ['telegram', 'whatsapp', 'facebook', 'google', 'tiktok', 'viber', 'line', 'instagram','paypal','signal']
 
 # ---------------- HELPER FUNCTIONS ----------------
 
@@ -212,8 +212,8 @@ def main_menu(message):
             
         bot.reply_to(message, msg_text, parse_mode="Markdown")
         
-    elif text == '💎 Top-up':
-        bot.reply_to(message, f"💸 To top-up your wallet, please contact Admin.\n\nYour ID: `{user_id}`", parse_mode="Markdown")
+    elif text == '💳 Top-up':
+        bot.reply_to(message, f"💸 To top-up your wallet, please contact Admin.\n\n@Shake0098\n\n💰Payment Method: \n\n🇲🇲Myanmar\n\nKBZ Pay\nWave Pay\nAYA Pay\nUAB Pay\n\n🌐🌍Global:\nBinance\n\Bybit\n\Any other Crypto\n\nYour ID: `{user_id}`", parse_mode="Markdown")
         
     elif text == '🛒 Buy Number':
         show_services(user_id, 0)
