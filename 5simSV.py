@@ -10,7 +10,7 @@ from pymongo import MongoClient
 
 # ---------------- CONFIGURATION ----------------
 # Render Environment Variables
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '8534849448:AAHc6uG2QYrrZI46-oNl1EKlZbMqTd6wDTM') 
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '8497073173:AAFKVvHGM3922nxgzXBZJ_jNIIELeXZY6l0') 
 API_KEY = os.environ.get('SIM_API_KEY', 'eyJhbGciOiJSUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3OTc2NDYwMTIsImlhdCI6MTc2NjExMDAxMiwicmF5IjoiM2RlZDBiNTExNDc3ZjRkMzk4ZGM4NjA4MjYwMTM2NGQiLCJzdWIiOjM2NzEwNTF9.yo5lYq1tDiZklFRfR1_EeIT8bRVO6ZyO4DdsM-7AnNioVq7HVK28LPPjqEMPuk9Wm5qpPvUwhrJYR2hxyW1-1qMoCO3o633jsGTjzKElRd3cbBT4MizeCLyYaOvWgEh3-JnQBpZz-5WkKBVxKognLzsrilhQT6-fZzDMdfcNlrPRiOiXFdNGTE6ZGMk_0H2faINZ8U2mc6WZVLocB41EmuL3gp7Ra7jZ8PWfmD4-mnttLiRU9y0GxNslaQvnWBphvbN2g-Z_oMhyMPCrTx6DwD39Xnx1vyBc-UbQeAGGDCs50G-jNwSDPHLjss6yNQrryOQbKKMSE5bmBum4fWPEdg')
 ADMIN_ID = int(os.environ.get('ADMIN_ID', '5127528224'))
 MONGO_URI = os.environ.get('MONGO_URI', 'mongodb+srv://kntdb:dbKnt2Sim@5simdb.mtxe58u.mongodb.net/?appName=5simDB')
