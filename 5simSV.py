@@ -14,7 +14,6 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN', '8534849448:AAHc6uG2QYrrZI46-oNl1EKlZbMq
 API_KEY = os.environ.get('SIM_API_KEY', 'eyJhbGciOiJSUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3OTc2NDYwMTIsImlhdCI6MTc2NjExMDAxMiwicmF5IjoiM2RlZDBiNTExNDc3ZjRkMzk4ZGM4NjA4MjYwMTM2NGQiLCJzdWIiOjM2NzEwNTF9.yo5lYq1tDiZklFRfR1_EeIT8bRVO6ZyO4DdsM-7AnNioVq7HVK28LPPjqEMPuk9Wm5qpPvUwhrJYR2hxyW1-1qMoCO3o633jsGTjzKElRd3cbBT4MizeCLyYaOvWgEh3-JnQBpZz-5WkKBVxKognLzsrilhQT6-fZzDMdfcNlrPRiOiXFdNGTE6ZGMk_0H2faINZ8U2mc6WZVLocB41EmuL3gp7Ra7jZ8PWfmD4-mnttLiRU9y0GxNslaQvnWBphvbN2g-Z_oMhyMPCrTx6DwD39Xnx1vyBc-UbQeAGGDCs50G-jNwSDPHLjss6yNQrryOQbKKMSE5bmBum4fWPEdg')
 ADMIN_ID = int(os.environ.get('ADMIN_ID', '5127528224'))
 MONGO_URI = os.environ.get('MONGO_URI', 'mongodb+srv://kntdb:dbKnt2Sim@5simdb.mtxe58u.mongodb.net/?appName=5simDB')
-
 # Economics
 RUB_TO_MMK = 57.38 
 PROFIT_PERCENT = 25  # User gets +25% price markup
@@ -41,6 +40,7 @@ def register_user(user_id, first_name):
         })
 
 def update_balance(user_id, amount):
+    # MongoDB $inc increments value (negative amount means deduct)
     users_collection.update_one({'_id': user_id}, {'$inc': {'balance': amount}})
 
 def get_all_users_list():
@@ -71,30 +71,29 @@ def calculate_display_price(rub_price, user_id):
 def get_server_balance():
     try:
         resp = requests.get(f"{BASE_URL}/user/profile", headers=HEADERS).json()
-        return resp.get('balance', 0)
+        return float(resp.get('balance', 0))
     except:
-        return 0
+        return 0.0
 
-# ---------------- ADMIN COMMANDS ----------------
+# ---------------- ADMIN COMMANDS (FIXED) ----------------
 
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     if message.from_user.id != ADMIN_ID: return
     
-    # Check total money held by users
     all_users = get_all_users_list()
     total_holdings = sum(u.get('balance', 0) for u in all_users)
     
     msg = (
         "👑 **Admin Control Panel**\n\n"
-        "👥 Total Users: `{}`\n"
-        "💰 Total User Holdings: `{} Ks`\n\n"
+        f"👥 Total Users: `{len(all_users)}`\n"
+        f"💰 Total User Holdings: `{total_holdings} Ks`\n\n"
         "**Commands:**\n"
-        "`/users` - Get User List (ID, Name, Bal)\n"
+        "`/users` - Get User List\n"
         "`/add [ID] [Amount]` - Add Balance\n"
         "`/cut [ID] [Amount]` - Deduct Balance\n"
         "`/info [ID]` - Check Specific User"
-    ).format(len(all_users), total_holdings)
+    )
     
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("👥 Get User List", callback_data="admin_get_users"))
@@ -113,42 +112,64 @@ def send_user_list(chat_id):
         return
 
     msg_chunk = "📋 **User List:**\n\n"
-    count = 0
-    
     for u in users:
-        # Format: ID | Name | Balance
         line = f"🆔 `{u['_id']}` | {u.get('name', 'Unknown')} | 💰 `{u.get('balance', 0)} Ks`\n"
-        
-        # Split message if too long (Telegram limit is 4096 chars)
         if len(msg_chunk) + len(line) > 3500:
             bot.send_message(chat_id, msg_chunk, parse_mode="Markdown")
-            msg_chunk = "" # Reset
-        
+            msg_chunk = ""
         msg_chunk += line
-        count += 1
-        
-    if msg_chunk:
-        bot.send_message(chat_id, msg_chunk, parse_mode="Markdown")
+    if msg_chunk: bot.send_message(chat_id, msg_chunk, parse_mode="Markdown")
 
 @bot.message_handler(commands=['add'])
 def add_money(message):
     if message.from_user.id != ADMIN_ID: return
     try:
-        _, user_id, amount = message.text.split()
-        update_balance(int(user_id), int(amount))
-        bot.reply_to(message, f"✅ Added `{amount} Ks` to User `{user_id}`.", parse_mode="Markdown")
-        try: bot.send_message(int(user_id), f"💰 Deposit Received: `{amount} Ks`", parse_mode="Markdown")
-        except: pass
+        parts = message.text.split()
+        if len(parts) != 3: raise ValueError
+        user_id = int(parts[1])
+        amount = int(parts[2])
+        
+        if get_user(user_id):
+            update_balance(user_id, amount)
+            bot.reply_to(message, f"✅ Added `{amount} Ks` to User `{user_id}`.", parse_mode="Markdown")
+            try: bot.send_message(user_id, f"💰 Deposit Received: `{amount} Ks`", parse_mode="Markdown")
+            except: pass
+        else:
+            bot.reply_to(message, "❌ User ID not found in database.")
     except: bot.reply_to(message, "Error. Use: `/add 123456 1000`")
+
+@bot.message_handler(commands=['cut'])
+def cut_money(message):
+    if message.from_user.id != ADMIN_ID: return
+    try:
+        parts = message.text.split()
+        if len(parts) != 3: raise ValueError
+        user_id = int(parts[1])
+        amount = int(parts[2])
+        
+        user = get_user(user_id)
+        if user:
+            update_balance(user_id, -amount) # Negative amount to deduct
+            bot.reply_to(message, f"✂️ Deducted `{amount} Ks` from User `{user_id}`.", parse_mode="Markdown")
+            try: bot.send_message(user_id, f"📉 Balance Deducted: `{amount} Ks`", parse_mode="Markdown")
+            except: pass
+        else:
+            bot.reply_to(message, "❌ User ID not found.")
+    except: bot.reply_to(message, "Error. Use: `/cut 123456 1000`")
 
 @bot.message_handler(commands=['info'])
 def user_info(message):
     if message.from_user.id != ADMIN_ID: return
     try:
-        uid = int(message.text.split()[1])
+        parts = message.text.split()
+        if len(parts) != 2: raise ValueError
+        uid = int(parts[1])
         u = get_user(uid)
-        bot.reply_to(message, f"👤 {u['name']}\n💰 Bal: {u['balance']} Ks")
-    except: pass
+        if u:
+            bot.reply_to(message, f"👤 **User Info**\nID: `{uid}`\nName: {u.get('name')}\nBalance: `{u.get('balance')} Ks`", parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ User not found.")
+    except: bot.reply_to(message, "Error. Use: `/info 123456`")
 
 # ---------------- USER COMMANDS ----------------
 
@@ -165,25 +186,27 @@ def main_menu(message):
     text = message.text
     
     if text == '👤 My Profile':
-        # Ensure user is registered even if they didn't press start recently
         register_user(user_id, message.from_user.first_name)
         user = get_user(user_id)
         bal = user.get('balance', 0)
         
-        # Standard View for everyone
+        # Standard View
         msg_text = f"👤 **User Profile**\n\n🆔 ID: `{user_id}`\n👤 Name: {user.get('name')}\n💰 **Wallet Balance: {bal} Ks**"
         
-        # Extra View for Admin
+        # Admin View (Includes Server Balance in RUB & MMK)
         if user_id == ADMIN_ID:
-            server_bal = get_server_balance()
-            # Calculate total user debt/holdings
+            server_bal_rub = get_server_balance()
+            server_bal_mmk = int(server_bal_rub * RUB_TO_MMK)
+            
             all_u = get_all_users_list()
             total_user_mmk = sum(u.get('balance', 0) for u in all_u)
             
             msg_text += (
                 f"\n\n⚙️ **Admin Dashboard:**\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
-                f"🔌 **Admin Server Balance:** `{server_bal} RUB`\n" # Renamed
+                f"🔌 **Server Balance:**\n"
+                f"   🇷🇺 `{server_bal_rub} RUB`\n"
+                f"   🇲🇲 `~{server_bal_mmk} MMK`\n\n"
                 f"👥 Total User Funds: `{total_user_mmk} Ks`"
             )
             
@@ -300,9 +323,7 @@ def handle_callbacks(call):
     if action == 'page': show_services(user_id, int(data[1]), call.message.message_id)
     elif action == 'srv': show_countries(user_id, data[1], call.message.message_id)
     elif action == 'op': show_operators(user_id, data[1], data[2], call.message.message_id)
-    
-    elif action == 'admin_get_users' and user_id == ADMIN_ID:
-        send_user_list(user_id)
+    elif action == 'admin_get_users' and user_id == ADMIN_ID: send_user_list(user_id)
     
     elif action == 'buy':
         country, operator, service = data[1], data[2], data[3]
@@ -332,13 +353,21 @@ def handle_callbacks(call):
             if 'phone' in buy_resp:
                 update_balance(user_id, -final_mmk)
                 phone, oid = buy_resp['phone'], buy_resp['id']
-                msg = (f"✅ **Order Successful!**\n📱 Phone: `{phone}`\n🌍 Country: {country.upper()}\n💰 Deducted: {final_mmk} Ks\n⏳ Waiting for SMS...")
+                
+                # Success Message with English Suggestion at bottom
+                msg = (f"✅ **Order Successful!**\n"
+                       f"📱 Phone: `{phone}`\n"
+                       f"🌍 Country: {country.upper()}\n"
+                       f"💰 Deducted: {final_mmk} Ks\n"
+                       f"⏳ Waiting for SMS...\n\n"
+                       f"_(If SMS is delayed or does not arrive, please try selecting a higher-priced operator for better quality.)_")
+                
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton("❌ Cancel Order", callback_data=f"cancel|{oid}|{final_mmk}"))
                 bot.send_message(user_id, msg, reply_markup=markup, parse_mode="Markdown")
                 threading.Thread(target=check_sms_thread, args=(user_id, oid, final_mmk)).start()
             else:
-                bot.send_message(user_id, "❌ Purchase Failed.")
+                bot.send_message(user_id, "❌ Purchase Failed. Try a different operator.")
         except Exception as e: bot.send_message(user_id, f"Error: {e}")
 
     elif action == 'cancel':
