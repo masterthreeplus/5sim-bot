@@ -57,23 +57,45 @@ bot = telebot.TeleBot(BOT_TOKEN)
 
 POPULAR_SERVICES = ['telegram', 'whatsapp', 'facebook', 'google', 'tiktok', 'viber', 'line', 'instagram']
 
-# ---------------- FLAG EMOJI MAPPING ----------------
-# 5sim country names to Emojis
+# ---------------- EXTENDED FLAG MAPPING ----------------
 FLAG_MAP = {
-    'myanmar': '🇲🇲', 'usa': '🇺🇸', 'russia': '🇷🇺', 'vietnam': '🇻🇳', 'indonesia': '🇮🇩',
-    'thailand': '🇹🇭', 'philippines': '🇵🇭', 'malaysia': '🇲🇾', 'cambodia': '🇰🇭', 'laos': '🇱🇦',
-    'england': '🇬🇧', 'uk': '🇬🇧', 'ukraine': '🇺🇦', 'kazakhstan': '🇰🇿', 'china': '🇨🇳',
-    'india': '🇮🇳', 'brazil': '🇧🇷', 'pakistan': '🇵🇰', 'bangladesh': '🇧🇩', 'nigeria': '🇳🇬',
-    'kenya': '🇰🇪', 'southafrica': '🇿🇦', 'egypt': '🇪🇬', 'germany': '🇩🇪', 'france': '🇫🇷',
-    'spain': '🇪🇸', 'italy': '🇮🇹', 'netherlands': '🇳🇱', 'poland': '🇵🇱', 'sweden': '🇸🇪',
-    'turkey': '🇹🇷', 'argentina': '🇦🇷', 'colombia': '🇨🇴', 'mexico': '🇲🇽', 'peru': '🇵🇪',
-    'canada': '🇨🇦', 'australia': '🇦🇺', 'hongkong': '🇭🇰', 'taiwan': '🇹🇼', 'japan': '🇯🇵',
-    'korea': '🇰🇷', 'nepal': '🇳🇵', 'srilanka': '🇱🇰', 'morocco': '🇲🇦', 'algeria': '🇩🇿'
+    'afghanistan': '🇦🇫', 'albania': '🇦🇱', 'algeria': '🇩🇿', 'angola': '🇦🇴', 'argentina': '🇦🇷',
+    'armenia': '🇦🇲', 'australia': '🇦🇺', 'austria': '🇦🇹', 'azerbaijan': '🇦🇿', 'bahrain': '🇧🇭',
+    'bangladesh': '🇧🇩', 'belarus': '🇧🇾', 'belgium': '🇧🇪', 'benin': '🇧🇯', 'bolivia': '🇧🇴',
+    'bosnia': '🇧🇦', 'brazil': '🇧🇷', 'bulgaria': '🇧🇬', 'burkinafaso': '🇧e🇫', 'burundi': '🇧🇮',
+    'cambodia': '🇰🇭', 'cameroon': '🇨🇲', 'canada': '🇨e🇦', 'chad': '🇹🇩', 'chile': '🇨🇱',
+    'china': '🇨🇳', 'colombia': '🇨🇴', 'congo': '🇨🇬', 'croatia': '🇭🇷', 'cyprus': '🇨🇾',
+    'czech': '🇨🇿', 'denmark': '🇩🇰', 'djibouti': '🇩🇯', 'dominican': '🇩🇴', 'ecuador': '🇪🇨',
+    'egypt': '🇪🇬', 'england': '🇬🇧', 'equatorialguinea': '🇬e🇶', 'estonia': '🇪🇪', 'ethiopia': '🇪🇹',
+    'finland': '🇫🇮', 'france': '🇫🇷', 'gabon': '🇬🇦', 'gambia': '🇬🇲', 'georgia': '🇬🇪',
+    'germany': '🇩🇪', 'ghana': '🇬🇭', 'greece': '🇬🇷', 'guatemala': '🇬🇹', 'guinea': '🇬🇳',
+    'guineabissau': '🇬🇼', 'guyana': '🇬🇾', 'haiti': '🇭🇹', 'honduras': '🇭🇳', 'hongkong': '🇭🇰',
+    'hungary': '🇭🇺', 'india': '🇮🇳', 'indonesia': '🇮🇩', 'iran': '🇮🇷', 'iraq': '🇮🇶',
+    'ireland': '🇮🇪', 'israel': '🇮🇱', 'italy': '🇮🇹', 'ivorycoast': '🇨🇮', 'jamaica': '🇯🇲',
+    'japan': '🇯🇵', 'jordan': '🇯🇴', 'kazakhstan': '🇰🇿', 'kenya': '🇰🇪', 'kuwait': '🇰🇼',
+    'kyrgyzstan': '🇰🇬', 'laos': '🇱🇦', 'latvia': '🇱🇻', 'lebanon': '🇱🇧', 'lesotho': '🇱🇸',
+    'liberia': '🇱🇷', 'libya': '🇱🇾', 'lithuania': '🇱🇹', 'luxembourg': '🇱🇺', 'macau': '🇲🇴',
+    'madagascar': '🇲🇬', 'malawi': '🇲e🇼', 'malaysia': '🇲🇾', 'maldives': '🇲🇻', 'mali': '🇲🇱',
+    'mauritania': '🇲🇷', 'mauritius': '🇲🇺', 'mexico': '🇲🇽', 'moldova': '🇲🇩', 'mongolia': '🇲🇳',
+    'montenegro': '🇲🇪', 'morocco': '🇲🇦', 'mozambique': '🇲🇿', 'myanmar': '🇲🇲', 'namibia': '🇳🇦',
+    'nepal': '🇳🇵', 'netherlands': '🇳🇱', 'newzealand': '🇳🇿', 'nicaragua': '🇳🇮', 'niger': '🇳🇪',
+    'nigeria': '🇳🇬', 'northmacedonia': '🇲🇰', 'norway': '🇳🇴', 'oman': '🇴🇲', 'pakistan': '🇵🇰',
+    'palestine': '🇵🇸', 'panama': '🇵🇦', 'papuanewguinea': '🇵🇬', 'paraguay': '🇵🇾', 'peru': '🇵🇪',
+    'philippines': '🇵🇭', 'poland': '🇵🇱', 'portugal': '🇵🇹', 'qatar': '🇶🇦', 'romania': '🇷🇴',
+    'russia': '🇷🇺', 'rwanda': '🇷🇼', 'saudiarabia': '🇸🇦', 'senegal': '🇸🇳', 'serbia': '🇷🇸',
+    'sierraleone': '🇸🇱', 'singapore': '🇸🇬', 'slovakia': '🇸🇰', 'slovenia': '🇸🇮', 'somalia': '🇸🇴',
+    'southafrica': '🇿🇦', 'spain': '🇪🇸', 'srilanka': '🇱🇰', 'sudan': '🇸🇩', 'suriname': '🇸🇷',
+    'swaziland': '🇸🇿', 'sweden': '🇸🇪', 'switzerland': '🇨🇭', 'syria': '🇸🇾', 'taiwan': '🇹🇼',
+    'tajikistan': '🇹🇯', 'tanzania': '🇹🇿', 'thailand': '🇹🇭', 'timorleste': '🇹🇱', 'togo': '🇹🇬',
+    'tunisia': '🇹🇳', 'turkey': '🇹🇷', 'turkmenistan': '🇹🇲', 'uganda': '🇺🇬', 'ukraine': '🇺🇦',
+    'uae': '🇦🇪', 'uk': '🇬🇧', 'usa': '🇺🇸', 'uruguay': '🇺🇾', 'uzbekistan': '🇺🇿',
+    'venezuela': '🇻🇪', 'vietnam': '🇻🇳', 'yemen': '🇾🇪', 'zambia': '🇿🇲', 'zimbabwe': '🇿🇼'
 }
 
 def get_flag(country_name):
-    # Check if we have the flag, if not return generic flag
-    return FLAG_MAP.get(country_name.lower(), '🏳️')
+    # Remove spaces and convert to lower case to match keys (e.g., "Saudi Arabia" -> "saudiarabia")
+    clean_name = country_name.lower().replace(" ", "")
+    return FLAG_MAP.get(clean_name, '🏳️')
 
 # ---------------- HELPER FUNCTIONS ----------------
 
@@ -208,10 +230,8 @@ def main_menu(message):
         user = get_user(user_id)
         bal = user.get('balance', 0)
         
-        # Standard View
         msg_text = f"👤 **User Profile**\n\n🆔 ID: `{user_id}`\n👤 Name: {user.get('name')}\n💰 **Wallet Balance: {bal} Ks**"
         
-        # Admin View
         if user_id == ADMIN_ID:
             server_bal_rub = get_server_balance()
             server_bal_mmk = int(server_bal_rub * RUB_TO_MMK)
@@ -240,7 +260,7 @@ def main_menu(message):
             f"• Wave Pay\n"
             f"• AYA Pay\n"
             f"• UAB Pay\n\n"
-            f"🌐🌍 **Global:**\n"
+            f"🌍 **Global:**\n"  # Fixed Emoji here
             f"• Binance\n"
             f"• Bybit\n"
             f"• Any Crypto (USDT)"
@@ -283,7 +303,7 @@ def show_services(chat_id, page=0, msg_id=None):
     if msg_id: bot.edit_message_text(text, chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
     else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
 
-# ---------------- COUNTRY MENU (PAGINATION FIXED) ----------------
+# ---------------- COUNTRY MENU ----------------
 
 def show_countries(chat_id, service, page=0, msg_id=None):
     bot.send_chat_action(chat_id, 'typing')
@@ -291,7 +311,6 @@ def show_countries(chat_id, service, page=0, msg_id=None):
         resp = requests.get(f"{BASE_URL}/guest/prices?product={service}", headers=HEADERS).json()
         data_source = resp.get(service, {}) if service in resp else resp
         
-        # Collect all valid countries
         countries = []
         for c_name, ops in data_source.items():
             if not isinstance(ops, dict): continue
@@ -305,17 +324,15 @@ def show_countries(chat_id, service, page=0, msg_id=None):
                 display_price = calculate_display_price(min_price_rub, chat_id)
                 countries.append({'n': c_name, 'p': display_price, 's': total_stock})
         
-        countries.sort(key=lambda x: x['p']) # Sort by Price
+        countries.sort(key=lambda x: x['p'])
         
         if not countries:
             bot.send_message(chat_id, "❌ No stock available.")
             return
 
-        # --- PAGINATION LOGIC ---
-        PER_PAGE = 20 # 20 Countries per page
+        PER_PAGE = 20
         total_pages = (len(countries) + PER_PAGE - 1) // PER_PAGE
         
-        # Adjust page if out of bounds
         if page < 0: page = 0
         if page >= total_pages: page = total_pages - 1
         
@@ -325,17 +342,15 @@ def show_countries(chat_id, service, page=0, msg_id=None):
 
         markup = types.InlineKeyboardMarkup(row_width=1)
         for c in current_batch:
-            # Add Flag Emoji
             flag = get_flag(c['n'])
             btn_txt = f"{flag} {c['n'].upper()} - from {c['p']} Ks ({c['s']})"
             markup.add(types.InlineKeyboardButton(btn_txt, callback_data=f"op|{c['n']}|{service}"))
         
-        # Pagination Buttons
         nav_btns = []
         if page > 0:
             nav_btns.append(types.InlineKeyboardButton("⬅️ Back", callback_data=f"cnt_pg|{service}|{page-1}"))
         if end < len(countries):
-            nav_btns.append(types.InlineKeyboardButton("Next ➡️", callback_data=f"cnt_pg|{service}|{page+1}")) # See More
+            nav_btns.append(types.InlineKeyboardButton("Next ➡️", callback_data=f"cnt_pg|{service}|{page+1}"))
         markup.add(*nav_btns)
         
         markup.add(types.InlineKeyboardButton("⬅️ Back to Services", callback_data="page|0"))
@@ -358,7 +373,6 @@ def show_operators(chat_id, country, service, msg_id):
             if det['count'] > 0: valid_ops.append({'name': op, 'cost': det['cost'], 'count': det['count']})
         valid_ops.sort(key=lambda x: x['cost'])
         
-        # Flag in Title
         flag = get_flag(country)
         
         if valid_ops:
@@ -370,7 +384,7 @@ def show_operators(chat_id, country, service, msg_id):
             d_price = calculate_display_price(op['cost'], chat_id)
             markup.add(types.InlineKeyboardButton(f"📶 {op['name'].upper()} - {d_price} Ks ({op['count']})", callback_data=f"buy|{country}|{op['name']}|{service}"))
         
-        markup.add(types.InlineKeyboardButton("⬅️ Back to Countries", callback_data=f"cnt_pg|{service}|0")) # Back to Page 0 of Country list
+        markup.add(types.InlineKeyboardButton("⬅️ Back to Countries", callback_data=f"cnt_pg|{service}|0"))
         bot.edit_message_text(f"📶 Operator for **{flag} {country.upper()}**:", chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
     except: bot.send_message(chat_id, "Error loading operators.")
 
@@ -383,8 +397,8 @@ def handle_callbacks(call):
     action = data[0]
     
     if action == 'page': show_services(user_id, int(data[1]), call.message.message_id)
-    elif action == 'srv': show_countries(user_id, data[1], page=0, msg_id=call.message.message_id) # Start Page 0
-    elif action == 'cnt_pg': show_countries(user_id, data[1], page=int(data[2]), msg_id=call.message.message_id) # Paginate Countries
+    elif action == 'srv': show_countries(user_id, data[1], page=0, msg_id=call.message.message_id)
+    elif action == 'cnt_pg': show_countries(user_id, data[1], page=int(data[2]), msg_id=call.message.message_id)
     elif action == 'op': show_operators(user_id, data[1], data[2], call.message.message_id)
     elif action == 'admin_get_users' and user_id == ADMIN_ID: send_user_list(user_id)
     
@@ -443,7 +457,7 @@ def handle_callbacks(call):
             bot.send_message(user_id, "⚠️ Unable to cancel (SMS may be received).")
 
 def check_sms_thread(user_id, order_id, cost_mmk):
-    for i in range(180): # 15 minutes
+    for i in range(180):
         time.sleep(5)
         try:
             res = requests.get(f"{BASE_URL}/user/check/{order_id}", headers=HEADERS).json()
