@@ -7,6 +7,7 @@ import certifi
 from flask import Flask
 from telebot import types
 from pymongo import MongoClient
+from datetime import datetime
 
 # ---------------- CONFIGURATION ----------------
 # Render Environment Variables
@@ -27,6 +28,7 @@ HEADERS = {'Authorization': 'Bearer ' + API_KEY, 'Accept': 'application/json'}
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client['5sim_reseller_db']
 users_collection = db['users']
+orders_collection = db['orders'] # Order History Collection
 
 def get_user(user_id):
     return users_collection.find_one({'_id': user_id})
@@ -46,6 +48,30 @@ def update_balance(user_id, amount):
 def get_all_users_list():
     return list(users_collection.find())
 
+# --- ORDER HISTORY FUNCTIONS ---
+def save_order(user_id, order_id, phone, country, service, cost, status="PENDING"):
+    orders_collection.insert_one({
+        '_id': order_id,
+        'user_id': user_id,
+        'phone': phone,
+        'country': country,
+        'service': service,
+        'cost': cost,
+        'status': status,
+        'sms': None,
+        'timestamp': datetime.now()
+    })
+
+def update_order_status(order_id, status, sms_text=None):
+    update_data = {'status': status}
+    if sms_text:
+        update_data['sms'] = sms_text
+    orders_collection.update_one({'_id': order_id}, {'$set': update_data})
+
+def get_user_history(user_id, limit=5):
+    # Get last 5 orders, sorted by newest first
+    return list(orders_collection.find({'user_id': user_id}).sort('timestamp', -1).limit(limit))
+
 # ---------------- FLASK SERVER ----------------
 app = Flask(__name__)
 @app.route('/')
@@ -57,16 +83,16 @@ bot = telebot.TeleBot(BOT_TOKEN)
 
 POPULAR_SERVICES = ['telegram', 'whatsapp', 'facebook', 'google', 'tiktok', 'viber', 'line', 'instagram']
 
-# ---------------- EXTENDED FLAG MAPPING ----------------
+# ---------------- FULL FLAG MAPPING (150+ Countries) ----------------
 FLAG_MAP = {
     'afghanistan': '🇦🇫', 'albania': '🇦🇱', 'algeria': '🇩🇿', 'angola': '🇦🇴', 'argentina': '🇦🇷',
     'armenia': '🇦🇲', 'australia': '🇦🇺', 'austria': '🇦🇹', 'azerbaijan': '🇦🇿', 'bahrain': '🇧🇭',
     'bangladesh': '🇧🇩', 'belarus': '🇧🇾', 'belgium': '🇧🇪', 'benin': '🇧🇯', 'bolivia': '🇧🇴',
-    'bosnia': '🇧🇦', 'brazil': '🇧🇷', 'bulgaria': '🇧🇬', 'burkinafaso': '🇧e🇫', 'burundi': '🇧🇮',
-    'cambodia': '🇰🇭', 'cameroon': '🇨🇲', 'canada': '🇨e🇦', 'chad': '🇹🇩', 'chile': '🇨🇱',
+    'bosnia': '🇧🇦', 'brazil': '🇧🇷', 'bulgaria': '🇧🇬', 'burkinafaso': '🇧🇫', 'burundi': '🇧🇮',
+    'cambodia': '🇰🇭', 'cameroon': '🇨🇲', 'canada': '🇨🇦', 'chad': '🇹🇩', 'chile': '🇨🇱',
     'china': '🇨🇳', 'colombia': '🇨🇴', 'congo': '🇨🇬', 'croatia': '🇭🇷', 'cyprus': '🇨🇾',
     'czech': '🇨🇿', 'denmark': '🇩🇰', 'djibouti': '🇩🇯', 'dominican': '🇩🇴', 'ecuador': '🇪🇨',
-    'egypt': '🇪🇬', 'england': '🇬🇧', 'equatorialguinea': '🇬e🇶', 'estonia': '🇪🇪', 'ethiopia': '🇪🇹',
+    'egypt': '🇪🇬', 'england': '🇬🇧', 'equatorialguinea': '🇬🇶', 'estonia': '🇪🇪', 'ethiopia': '🇪🇹',
     'finland': '🇫🇮', 'france': '🇫🇷', 'gabon': '🇬🇦', 'gambia': '🇬🇲', 'georgia': '🇬🇪',
     'germany': '🇩🇪', 'ghana': '🇬🇭', 'greece': '🇬🇷', 'guatemala': '🇬🇹', 'guinea': '🇬🇳',
     'guineabissau': '🇬🇼', 'guyana': '🇬🇾', 'haiti': '🇭🇹', 'honduras': '🇭🇳', 'hongkong': '🇭🇰',
@@ -75,7 +101,7 @@ FLAG_MAP = {
     'japan': '🇯🇵', 'jordan': '🇯🇴', 'kazakhstan': '🇰🇿', 'kenya': '🇰🇪', 'kuwait': '🇰🇼',
     'kyrgyzstan': '🇰🇬', 'laos': '🇱🇦', 'latvia': '🇱🇻', 'lebanon': '🇱🇧', 'lesotho': '🇱🇸',
     'liberia': '🇱🇷', 'libya': '🇱🇾', 'lithuania': '🇱🇹', 'luxembourg': '🇱🇺', 'macau': '🇲🇴',
-    'madagascar': '🇲🇬', 'malawi': '🇲e🇼', 'malaysia': '🇲🇾', 'maldives': '🇲🇻', 'mali': '🇲🇱',
+    'madagascar': '🇲🇬', 'malawi': '🇲🇼', 'malaysia': '🇲🇾', 'maldives': '🇲🇻', 'mali': '🇲🇱',
     'mauritania': '🇲🇷', 'mauritius': '🇲🇺', 'mexico': '🇲🇽', 'moldova': '🇲🇩', 'mongolia': '🇲🇳',
     'montenegro': '🇲🇪', 'morocco': '🇲🇦', 'mozambique': '🇲🇿', 'myanmar': '🇲🇲', 'namibia': '🇳🇦',
     'nepal': '🇳🇵', 'netherlands': '🇳🇱', 'newzealand': '🇳🇿', 'nicaragua': '🇳🇮', 'niger': '🇳🇪',
@@ -93,7 +119,7 @@ FLAG_MAP = {
 }
 
 def get_flag(country_name):
-    # Remove spaces and convert to lower case to match keys (e.g., "Saudi Arabia" -> "saudiarabia")
+    # Normalize name: remove spaces, lowercase
     clean_name = country_name.lower().replace(" ", "")
     return FLAG_MAP.get(clean_name, '🏳️')
 
@@ -132,7 +158,7 @@ def admin_panel(message):
         "`/users` - Get User List\n"
         "`/add [ID] [Amount]` - Add Balance\n"
         "`/cut [ID] [Amount]` - Deduct Balance\n"
-        "`/info [ID]` - Check Specific User"
+        "`/info [ID]` - Check User History"
     )
     
     markup = types.InlineKeyboardMarkup()
@@ -205,8 +231,34 @@ def user_info(message):
         if len(parts) != 2: raise ValueError
         uid = int(parts[1])
         u = get_user(uid)
+        
         if u:
-            bot.reply_to(message, f"👤 **User Info**\nID: `{uid}`\nName: {u.get('name')}\nBalance: `{u.get('balance')} Ks`", parse_mode="Markdown")
+            # Basic Info
+            msg = f"👤 **User Info**\nID: `{uid}`\nName: {u.get('name')}\nBalance: `{u.get('balance')} Ks`\n\n"
+            
+            # Fetch History
+            history = get_user_history(uid, limit=5)
+            if history:
+                msg += "📜 **Last 5 Orders:**\n"
+                for order in history:
+                    # Status Icons
+                    status_icon = "⏳"
+                    if order['status'] == 'COMPLETED': status_icon = "✅"
+                    elif order['status'] == 'CANCELED': status_icon = "❌"
+                    elif order['status'] == 'TIMEOUT': status_icon = "⚠️"
+                    
+                    flag = get_flag(order['country'])
+                    sms_info = f"\n📩 SMS: `{order['sms']}`" if order.get('sms') else ""
+                    
+                    msg += (f"━━━━━━━━━━━━━━━━\n"
+                            f"🆔 `{order['_id']}` | {status_icon} {order['status']}\n"
+                            f"{flag} {order['country'].upper()} | {order['service'].upper()}\n"
+                            f"📱 `{order['phone']}` | 💰 {order['cost']} Ks"
+                            f"{sms_info}\n")
+            else:
+                msg += "📜 **History:** No orders yet."
+                
+            bot.reply_to(message, msg, parse_mode="Markdown")
         else:
             bot.reply_to(message, "❌ User not found.")
     except: bot.reply_to(message, "Error. Use: `/info 123456`")
@@ -260,7 +312,7 @@ def main_menu(message):
             f"• Wave Pay\n"
             f"• AYA Pay\n"
             f"• UAB Pay\n\n"
-            f"🌍 **Global:**\n"  # Fixed Emoji here
+            f"🌍 **Global:**\n"
             f"• Binance\n"
             f"• Bybit\n"
             f"• Any Crypto (USDT)"
@@ -352,7 +404,6 @@ def show_countries(chat_id, service, page=0, msg_id=None):
         if end < len(countries):
             nav_btns.append(types.InlineKeyboardButton("Next ➡️", callback_data=f"cnt_pg|{service}|{page+1}"))
         markup.add(*nav_btns)
-        
         markup.add(types.InlineKeyboardButton("⬅️ Back to Services", callback_data="page|0"))
         
         text = f"🌍 **{service.upper()}** - Select Country (Page {page+1}/{total_pages}):"
@@ -432,6 +483,9 @@ def handle_callbacks(call):
                 phone, oid = buy_resp['phone'], buy_resp['id']
                 flag = get_flag(country)
                 
+                # LOG ORDER TO DB (PENDING)
+                save_order(user_id, oid, phone, country, service, final_mmk, "PENDING")
+                
                 msg = (f"✅ **Order Successful!**\n"
                        f"📱 Phone: `{phone}`\n"
                        f"🌍 Country: {flag} {country.upper()}\n"
@@ -452,12 +506,15 @@ def handle_callbacks(call):
         resp = requests.get(f"{BASE_URL}/user/cancel/{oid}", headers=HEADERS).json()
         if resp.get('status') == 'CANCELED':
             update_balance(user_id, amount)
+            # UPDATE DB STATUS
+            update_order_status(oid, "CANCELED")
+            
             bot.send_message(user_id, f"✅ Order Canceled.\n💰 `{amount} Ks` refunded.", parse_mode="Markdown")
         else:
             bot.send_message(user_id, "⚠️ Unable to cancel (SMS may be received).")
 
 def check_sms_thread(user_id, order_id, cost_mmk):
-    for i in range(180):
+    for i in range(180): # 15 minutes
         time.sleep(5)
         try:
             res = requests.get(f"{BASE_URL}/user/check/{order_id}", headers=HEADERS).json()
@@ -465,13 +522,27 @@ def check_sms_thread(user_id, order_id, cost_mmk):
             if status == 'RECEIVED':
                 code = res['sms'][0]['code']
                 msg = res['sms'][0].get('text', '')
+                
+                # UPDATE DB STATUS
+                update_order_status(order_id, "COMPLETED", sms_text=f"{code} - {msg}")
+                
                 bot.send_message(user_id, f"📩 **SMS RECEIVED!**\n\nCode: `{code}`\nMsg: {msg}", parse_mode="Markdown")
                 return
-            elif status == 'CANCELED' or status == 'TIMEOUT': return
+            elif status == 'CANCELED':
+                update_order_status(order_id, "CANCELED")
+                return
+            elif status == 'TIMEOUT':
+                update_order_status(order_id, "TIMEOUT")
+                return
         except: pass
     
+    # Timeout Auto-Cancel
     requests.get(f"{BASE_URL}/user/cancel/{order_id}", headers=HEADERS)
     update_balance(user_id, cost_mmk)
+    
+    # UPDATE DB STATUS
+    update_order_status(order_id, "TIMEOUT")
+    
     bot.send_message(user_id, f"⚠️ **Timeout**\nOrder cancelled automatically.\n💰 `{cost_mmk} Ks` refunded.\n💡 Suggestion: Try higher price operator.", parse_mode="Markdown")
 
 if __name__ == "__main__":
