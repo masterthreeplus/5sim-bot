@@ -177,7 +177,8 @@ def user_info(message):
 def start(message):
     register_user(message.from_user.id, message.from_user.first_name)
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add('🛒 Buy Number', '👤 My Profile', '💎 Top-up')
+    markup.add('🛒 Buy Number', '👤 My Profile', '💳 Top-up') 
+    
     bot.send_message(message.chat.id, f"Welcome {message.from_user.first_name}! 🌍\nSelect an option below:", reply_markup=markup)
 
 @bot.message_handler(func=lambda msg: True)
