@@ -57,6 +57,24 @@ bot = telebot.TeleBot(BOT_TOKEN)
 
 POPULAR_SERVICES = ['telegram', 'whatsapp', 'facebook', 'google', 'tiktok', 'viber', 'line', 'instagram']
 
+# ---------------- FLAG EMOJI MAPPING ----------------
+# 5sim country names to Emojis
+FLAG_MAP = {
+    'myanmar': '🇲🇲', 'usa': '🇺🇸', 'russia': '🇷🇺', 'vietnam': '🇻🇳', 'indonesia': '🇮🇩',
+    'thailand': '🇹🇭', 'philippines': '🇵🇭', 'malaysia': '🇲🇾', 'cambodia': '🇰🇭', 'laos': '🇱🇦',
+    'england': '🇬🇧', 'uk': '🇬🇧', 'ukraine': '🇺🇦', 'kazakhstan': '🇰🇿', 'china': '🇨🇳',
+    'india': '🇮🇳', 'brazil': '🇧🇷', 'pakistan': '🇵🇰', 'bangladesh': '🇧🇩', 'nigeria': '🇳🇬',
+    'kenya': '🇰🇪', 'southafrica': '🇿🇦', 'egypt': '🇪🇬', 'germany': '🇩🇪', 'france': '🇫🇷',
+    'spain': '🇪🇸', 'italy': '🇮🇹', 'netherlands': '🇳🇱', 'poland': '🇵🇱', 'sweden': '🇸🇪',
+    'turkey': '🇹🇷', 'argentina': '🇦🇷', 'colombia': '🇨🇴', 'mexico': '🇲🇽', 'peru': '🇵🇪',
+    'canada': '🇨🇦', 'australia': '🇦🇺', 'hongkong': '🇭🇰', 'taiwan': '🇹🇼', 'japan': '🇯🇵',
+    'korea': '🇰🇷', 'nepal': '🇳🇵', 'srilanka': '🇱🇰', 'morocco': '🇲🇦', 'algeria': '🇩🇿'
+}
+
+def get_flag(country_name):
+    # Check if we have the flag, if not return generic flag
+    return FLAG_MAP.get(country_name.lower(), '🏳️')
+
 # ---------------- HELPER FUNCTIONS ----------------
 
 def calculate_display_price(rub_price, user_id):
@@ -177,7 +195,6 @@ def user_info(message):
 def start(message):
     register_user(message.from_user.id, message.from_user.first_name)
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    # Changed '💎 Top-up' to '💳 Top-up' to match your request
     markup.add('🛒 Buy Number', '👤 My Profile', '💳 Top-up')
     bot.send_message(message.chat.id, f"Welcome {message.from_user.first_name}! 🌍\nSelect an option below:", reply_markup=markup)
 
@@ -223,10 +240,10 @@ def main_menu(message):
             f"• Wave Pay\n"
             f"• AYA Pay\n"
             f"• UAB Pay\n\n"
-            f"🌍 **Global:**\n"
+            f"🌐🌍 **Global:**\n"
             f"• Binance\n"
             f"• Bybit\n"
-            f"• Crypto (USDT)"
+            f"• Any Crypto (USDT)"
         )
         bot.reply_to(message, msg, parse_mode="Markdown")
         
@@ -266,13 +283,15 @@ def show_services(chat_id, page=0, msg_id=None):
     if msg_id: bot.edit_message_text(text, chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
     else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
 
-# ---------------- COUNTRY MENU ----------------
+# ---------------- COUNTRY MENU (PAGINATION FIXED) ----------------
 
-def show_countries(chat_id, service, msg_id=None):
+def show_countries(chat_id, service, page=0, msg_id=None):
     bot.send_chat_action(chat_id, 'typing')
     try:
         resp = requests.get(f"{BASE_URL}/guest/prices?product={service}", headers=HEADERS).json()
         data_source = resp.get(service, {}) if service in resp else resp
+        
+        # Collect all valid countries
         countries = []
         for c_name, ops in data_source.items():
             if not isinstance(ops, dict): continue
@@ -286,20 +305,45 @@ def show_countries(chat_id, service, msg_id=None):
                 display_price = calculate_display_price(min_price_rub, chat_id)
                 countries.append({'n': c_name, 'p': display_price, 's': total_stock})
         
-        countries.sort(key=lambda x: x['p'])
+        countries.sort(key=lambda x: x['p']) # Sort by Price
+        
         if not countries:
             bot.send_message(chat_id, "❌ No stock available.")
             return
 
+        # --- PAGINATION LOGIC ---
+        PER_PAGE = 20 # 20 Countries per page
+        total_pages = (len(countries) + PER_PAGE - 1) // PER_PAGE
+        
+        # Adjust page if out of bounds
+        if page < 0: page = 0
+        if page >= total_pages: page = total_pages - 1
+        
+        start = page * PER_PAGE
+        end = start + PER_PAGE
+        current_batch = countries[start:end]
+
         markup = types.InlineKeyboardMarkup(row_width=1)
-        for c in countries[:20]:
-            btn_txt = f"🏳️ {c['n'].upper()} - from {c['p']} Ks ({c['s']})"
+        for c in current_batch:
+            # Add Flag Emoji
+            flag = get_flag(c['n'])
+            btn_txt = f"{flag} {c['n'].upper()} - from {c['p']} Ks ({c['s']})"
             markup.add(types.InlineKeyboardButton(btn_txt, callback_data=f"op|{c['n']}|{service}"))
+        
+        # Pagination Buttons
+        nav_btns = []
+        if page > 0:
+            nav_btns.append(types.InlineKeyboardButton("⬅️ Back", callback_data=f"cnt_pg|{service}|{page-1}"))
+        if end < len(countries):
+            nav_btns.append(types.InlineKeyboardButton("Next ➡️", callback_data=f"cnt_pg|{service}|{page+1}")) # See More
+        markup.add(*nav_btns)
+        
         markup.add(types.InlineKeyboardButton("⬅️ Back to Services", callback_data="page|0"))
         
-        text = f"🌍 **{service.upper()}** - Select Country:"
+        text = f"🌍 **{service.upper()}** - Select Country (Page {page+1}/{total_pages}):"
         if msg_id: bot.edit_message_text(text, chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
         else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
+        
     except: bot.send_message(chat_id, "Error loading countries.")
 
 # ---------------- OPERATOR MENU ----------------
@@ -314,6 +358,9 @@ def show_operators(chat_id, country, service, msg_id):
             if det['count'] > 0: valid_ops.append({'name': op, 'cost': det['cost'], 'count': det['count']})
         valid_ops.sort(key=lambda x: x['cost'])
         
+        # Flag in Title
+        flag = get_flag(country)
+        
         if valid_ops:
             best_price_rub = valid_ops[0]['cost']
             display_price = calculate_display_price(best_price_rub, chat_id)
@@ -323,8 +370,8 @@ def show_operators(chat_id, country, service, msg_id):
             d_price = calculate_display_price(op['cost'], chat_id)
             markup.add(types.InlineKeyboardButton(f"📶 {op['name'].upper()} - {d_price} Ks ({op['count']})", callback_data=f"buy|{country}|{op['name']}|{service}"))
         
-        markup.add(types.InlineKeyboardButton("⬅️ Back to Countries", callback_data=f"srv|{service}"))
-        bot.edit_message_text(f"📶 Operator for **{country.upper()}**:", chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
+        markup.add(types.InlineKeyboardButton("⬅️ Back to Countries", callback_data=f"cnt_pg|{service}|0")) # Back to Page 0 of Country list
+        bot.edit_message_text(f"📶 Operator for **{flag} {country.upper()}**:", chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
     except: bot.send_message(chat_id, "Error loading operators.")
 
 # ---------------- BUY HANDLER ----------------
@@ -336,7 +383,8 @@ def handle_callbacks(call):
     action = data[0]
     
     if action == 'page': show_services(user_id, int(data[1]), call.message.message_id)
-    elif action == 'srv': show_countries(user_id, data[1], call.message.message_id)
+    elif action == 'srv': show_countries(user_id, data[1], page=0, msg_id=call.message.message_id) # Start Page 0
+    elif action == 'cnt_pg': show_countries(user_id, data[1], page=int(data[2]), msg_id=call.message.message_id) # Paginate Countries
     elif action == 'op': show_operators(user_id, data[1], data[2], call.message.message_id)
     elif action == 'admin_get_users' and user_id == ADMIN_ID: send_user_list(user_id)
     
@@ -368,10 +416,11 @@ def handle_callbacks(call):
             if 'phone' in buy_resp:
                 update_balance(user_id, -final_mmk)
                 phone, oid = buy_resp['phone'], buy_resp['id']
+                flag = get_flag(country)
                 
                 msg = (f"✅ **Order Successful!**\n"
                        f"📱 Phone: `{phone}`\n"
-                       f"🌍 Country: {country.upper()}\n"
+                       f"🌍 Country: {flag} {country.upper()}\n"
                        f"💰 Deducted: {final_mmk} Ks\n"
                        f"⏳ Waiting for SMS...\n\n"
                        f"_(If SMS is delayed or does not arrive, please try selecting a higher-priced operator for better quality.)_")
@@ -407,7 +456,6 @@ def check_sms_thread(user_id, order_id, cost_mmk):
             elif status == 'CANCELED' or status == 'TIMEOUT': return
         except: pass
     
-    # Auto-cancel after timeout
     requests.get(f"{BASE_URL}/user/cancel/{order_id}", headers=HEADERS)
     update_balance(user_id, cost_mmk)
     bot.send_message(user_id, f"⚠️ **Timeout**\nOrder cancelled automatically.\n💰 `{cost_mmk} Ks` refunded.\n💡 Suggestion: Try higher price operator.", parse_mode="Markdown")
