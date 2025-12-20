@@ -43,6 +43,9 @@ def register_user(user_id, first_name):
 def update_balance(user_id, amount):
     users_collection.update_one({'_id': user_id}, {'$inc': {'balance': amount}})
 
+def get_all_users_list():
+    return list(users_collection.find())
+
 # ---------------- FLASK SERVER ----------------
 app = Flask(__name__)
 @app.route('/')
@@ -52,21 +55,16 @@ def keep_alive(): threading.Thread(target=run_web).start()
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Popular Services (Quick Access)
 POPULAR_SERVICES = ['telegram', 'whatsapp', 'facebook', 'google', 'tiktok', 'viber', 'line', 'instagram']
 
 # ---------------- HELPER FUNCTIONS ----------------
 
-# ဈေးနှုန်းတွက်ချက်မှု (Admin နဲ့ User ခွဲခြားခြင်း)
 def calculate_display_price(rub_price, user_id):
     rub_price = float(rub_price)
     base_mmk = rub_price * RUB_TO_MMK
-    
     if user_id == ADMIN_ID:
-        # Admin sees raw price
         return int(base_mmk)
     else:
-        # User sees price + 25%
         marked_up = base_mmk * (1 + PROFIT_PERCENT / 100)
         return int(marked_up)
 
@@ -82,13 +80,55 @@ def get_server_balance():
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     if message.from_user.id != ADMIN_ID: return
+    
+    # Check total money held by users
+    all_users = get_all_users_list()
+    total_holdings = sum(u.get('balance', 0) for u in all_users)
+    
     msg = (
-        "👑 **Admin Panel:**\n\n"
+        "👑 **Admin Control Panel**\n\n"
+        "👥 Total Users: `{}`\n"
+        "💰 Total User Holdings: `{} Ks`\n\n"
+        "**Commands:**\n"
+        "`/users` - Get User List (ID, Name, Bal)\n"
         "`/add [ID] [Amount]` - Add Balance\n"
         "`/cut [ID] [Amount]` - Deduct Balance\n"
-        "`/info [ID]` - Check User"
-    )
-    bot.reply_to(message, msg, parse_mode="Markdown")
+        "`/info [ID]` - Check Specific User"
+    ).format(len(all_users), total_holdings)
+    
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("👥 Get User List", callback_data="admin_get_users"))
+    
+    bot.reply_to(message, msg, reply_markup=markup, parse_mode="Markdown")
+
+@bot.message_handler(commands=['users'])
+def cmd_get_users(message):
+    if message.from_user.id != ADMIN_ID: return
+    send_user_list(message.chat.id)
+
+def send_user_list(chat_id):
+    users = get_all_users_list()
+    if not users:
+        bot.send_message(chat_id, "No users found.")
+        return
+
+    msg_chunk = "📋 **User List:**\n\n"
+    count = 0
+    
+    for u in users:
+        # Format: ID | Name | Balance
+        line = f"🆔 `{u['_id']}` | {u.get('name', 'Unknown')} | 💰 `{u.get('balance', 0)} Ks`\n"
+        
+        # Split message if too long (Telegram limit is 4096 chars)
+        if len(msg_chunk) + len(line) > 3500:
+            bot.send_message(chat_id, msg_chunk, parse_mode="Markdown")
+            msg_chunk = "" # Reset
+        
+        msg_chunk += line
+        count += 1
+        
+    if msg_chunk:
+        bot.send_message(chat_id, msg_chunk, parse_mode="Markdown")
 
 @bot.message_handler(commands=['add'])
 def add_money(message):
@@ -115,10 +155,8 @@ def user_info(message):
 @bot.message_handler(commands=['start'])
 def start(message):
     register_user(message.from_user.id, message.from_user.first_name)
-    # Removed Support Button
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add('🛒 Buy Number', '👤 My Profile', '💎 Top-up')
-    
     bot.send_message(message.chat.id, f"Welcome {message.from_user.first_name}! 🌍\nSelect an option below:", reply_markup=markup)
 
 @bot.message_handler(func=lambda msg: True)
@@ -127,15 +165,27 @@ def main_menu(message):
     text = message.text
     
     if text == '👤 My Profile':
+        # Ensure user is registered even if they didn't press start recently
+        register_user(user_id, message.from_user.first_name)
         user = get_user(user_id)
-        bal = user['balance'] if user else 0
+        bal = user.get('balance', 0)
         
-        msg_text = f"👤 **User Profile**\n🆔 ID: `{user_id}`\n💰 Wallet Balance: `{bal} Ks`"
+        # Standard View for everyone
+        msg_text = f"👤 **User Profile**\n\n🆔 ID: `{user_id}`\n👤 Name: {user.get('name')}\n💰 **Wallet Balance: {bal} Ks**"
         
-        # If Admin, show Server Balance
+        # Extra View for Admin
         if user_id == ADMIN_ID:
             server_bal = get_server_balance()
-            msg_text += f"\n\n⚙️ **Admin View:**\nSrvr Bal: `{server_bal} RUB`"
+            # Calculate total user debt/holdings
+            all_u = get_all_users_list()
+            total_user_mmk = sum(u.get('balance', 0) for u in all_u)
+            
+            msg_text += (
+                f"\n\n⚙️ **Admin Dashboard:**\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"🔌 **Admin Server Balance:** `{server_bal} RUB`\n" # Renamed
+                f"👥 Total User Funds: `{total_user_mmk} Ks`"
+            )
             
         bot.reply_to(message, msg_text, parse_mode="Markdown")
         
@@ -149,22 +199,16 @@ def main_menu(message):
 
 def show_services(chat_id, page=0, msg_id=None):
     markup = types.InlineKeyboardMarkup(row_width=2)
-    
     if page == 0:
-        # Popular Services
         buttons = [types.InlineKeyboardButton(f"📱 {s.capitalize()}", callback_data=f"srv|{s}") for s in POPULAR_SERVICES]
         markup.add(*buttons)
         markup.add(types.InlineKeyboardButton("See All Services ⤵️", callback_data="page|1"))
         text = "🔥 **Popular Services:**"
     else:
-        # All Services (Fetched from API)
         try:
             resp = requests.get(f"{BASE_URL}/guest/products/any/any", headers=HEADERS).json()
-            # Filter services with Stock > 0
             services = [k for k, v in resp.items() if v.get('Qty', 0) > 0]
             services.sort()
-            
-            # Pagination Logic (30 items per page)
             PER_PAGE = 30
             total_pages = (len(services) + PER_PAGE - 1) // PER_PAGE
             start = (page - 1) * PER_PAGE
@@ -173,16 +217,13 @@ def show_services(chat_id, page=0, msg_id=None):
             
             buttons = [types.InlineKeyboardButton(s, callback_data=f"srv|{s}") for s in current_batch]
             markup.add(*buttons)
-            
             nav = []
             if page > 1: nav.append(types.InlineKeyboardButton("⬅️ Back", callback_data=f"page|{page-1}"))
             if end < len(services): nav.append(types.InlineKeyboardButton("Next ➡️", callback_data=f"page|{page+1}"))
             markup.add(*nav)
             markup.add(types.InlineKeyboardButton("⬅️ Back to Popular", callback_data="page|0"))
-            
             text = f"🌐 **All Services** (Page {page}/{total_pages}):"
-        except:
-            text = "Error fetching services."
+        except: text = "Error fetching services."
 
     if msg_id: bot.edit_message_text(text, chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
     else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
@@ -193,51 +234,35 @@ def show_countries(chat_id, service, msg_id=None):
     bot.send_chat_action(chat_id, 'typing')
     try:
         resp = requests.get(f"{BASE_URL}/guest/prices?product={service}", headers=HEADERS).json()
-        
-        # Structure check: The API returns {"service_name": {"country": ...}} OR just {"country": ...} depending on endpoint
-        # Using /guest/prices?product=x usually returns {"product": {"country":...}}
         data_source = resp.get(service, {}) if service in resp else resp
-            
         countries = []
         for c_name, ops in data_source.items():
-            if not isinstance(ops, dict): continue # Skip invalid data
-
+            if not isinstance(ops, dict): continue
             min_price_rub = float('inf')
             total_stock = 0
-            
             for op, det in ops.items():
-                qty = det.get('count', 0)
-                cost = det.get('cost', 0)
-                if qty > 0:
-                    total_stock += qty
-                    if cost < min_price_rub: min_price_rub = cost
-            
+                if det['count'] > 0:
+                    total_stock += det['count']
+                    if det['cost'] < min_price_rub: min_price_rub = det['cost']
             if total_stock > 0:
-                # Calculate "From Price" based on user role
                 display_price = calculate_display_price(min_price_rub, chat_id)
                 countries.append({'n': c_name, 'p': display_price, 's': total_stock})
         
-        countries.sort(key=lambda x: x['p']) # Sort by price
-        
+        countries.sort(key=lambda x: x['p'])
         if not countries:
-            bot.send_message(chat_id, "❌ No stock available for this service.")
+            bot.send_message(chat_id, "❌ No stock available.")
             return
 
         markup = types.InlineKeyboardMarkup(row_width=1)
-        for c in countries[:20]: # Show top 20 cheapest
+        for c in countries[:20]:
             btn_txt = f"🏳️ {c['n'].upper()} - from {c['p']} Ks ({c['s']})"
             markup.add(types.InlineKeyboardButton(btn_txt, callback_data=f"op|{c['n']}|{service}"))
-        
-        # Back Button added
         markup.add(types.InlineKeyboardButton("⬅️ Back to Services", callback_data="page|0"))
         
         text = f"🌍 **{service.upper()}** - Select Country:"
         if msg_id: bot.edit_message_text(text, chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
         else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
-        
-    except Exception as e:
-        print(e)
-        bot.send_message(chat_id, "Error loading countries.")
+    except: bot.send_message(chat_id, "Error loading countries.")
 
 # ---------------- OPERATOR MENU ----------------
 
@@ -245,40 +270,26 @@ def show_operators(chat_id, country, service, msg_id):
     try:
         resp = requests.get(f"{BASE_URL}/guest/prices?product={service}", headers=HEADERS).json()
         data_source = resp.get(service, {}).get(country, {})
-        
         markup = types.InlineKeyboardMarkup(row_width=1)
-        
-        # Filter and sort operators
         valid_ops = []
         for op, det in data_source.items():
-            if det['count'] > 0:
-                valid_ops.append({'name': op, 'cost': det['cost'], 'count': det['count']})
-        
+            if det['count'] > 0: valid_ops.append({'name': op, 'cost': det['cost'], 'count': det['count']})
         valid_ops.sort(key=lambda x: x['cost'])
         
-        # 1. Any Operator (Auto) Option
         if valid_ops:
             best_price_rub = valid_ops[0]['cost']
             display_price = calculate_display_price(best_price_rub, chat_id)
-            markup.add(types.InlineKeyboardButton(
-                f"🎲 Any Operator (Auto) - {display_price} Ks", 
-                callback_data=f"buy|{country}|any|{service}"
-            ))
-
-        # 2. Specific Operators
+            markup.add(types.InlineKeyboardButton(f"🎲 Any Operator (Auto) - {display_price} Ks", callback_data=f"buy|{country}|any|{service}"))
+        
         for op in valid_ops:
             d_price = calculate_display_price(op['cost'], chat_id)
-            btn_text = f"📶 {op['name'].upper()} - {d_price} Ks ({op['count']})"
-            markup.add(types.InlineKeyboardButton(btn_text, callback_data=f"buy|{country}|{op['name']}|{service}"))
-
-        # Back Button to Country List
-        markup.add(types.InlineKeyboardButton("⬅️ Back to Countries", callback_data=f"srv|{service}"))
+            markup.add(types.InlineKeyboardButton(f"📶 {op['name'].upper()} - {d_price} Ks ({op['count']})", callback_data=f"buy|{country}|{op['name']}|{service}"))
         
-        bot.edit_message_text(f"📶 Select Operator for **{country.upper()}**:", chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
-    except:
-        bot.send_message(chat_id, "Error loading operators.")
+        markup.add(types.InlineKeyboardButton("⬅️ Back to Countries", callback_data=f"srv|{service}"))
+        bot.edit_message_text(f"📶 Operator for **{country.upper()}**:", chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
+    except: bot.send_message(chat_id, "Error loading operators.")
 
-# ---------------- BUY HANDLER & SMS ----------------
+# ---------------- BUY HANDLER ----------------
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callbacks(call):
@@ -290,112 +301,72 @@ def handle_callbacks(call):
     elif action == 'srv': show_countries(user_id, data[1], call.message.message_id)
     elif action == 'op': show_operators(user_id, data[1], data[2], call.message.message_id)
     
+    elif action == 'admin_get_users' and user_id == ADMIN_ID:
+        send_user_list(user_id)
+    
     elif action == 'buy':
         country, operator, service = data[1], data[2], data[3]
-        
-        # Re-check Price & Stock
         try:
             p_data = requests.get(f"{BASE_URL}/guest/prices?product={service}", headers=HEADERS).json()
             ops = p_data.get(service, {}).get(country, {})
-            
             real_rub_cost = float('inf')
             if operator == 'any':
-                # Find min price among available
                 for k, v in ops.items():
                     if v['count'] > 0 and v['cost'] < real_rub_cost: real_rub_cost = v['cost']
             else:
-                if operator in ops and ops[operator]['count'] > 0:
-                    real_rub_cost = ops[operator]['cost']
+                if operator in ops and ops[operator]['count'] > 0: real_rub_cost = ops[operator]['cost']
             
             if real_rub_cost == float('inf'):
-                bot.answer_callback_query(call.id, "❌ Stock changed or unavailable.", show_alert=True)
+                bot.answer_callback_query(call.id, "❌ Stock unavailable.", show_alert=True)
                 return
 
-            # Calculate Final Deduct Amount
             final_mmk = calculate_display_price(real_rub_cost, user_id)
-            
-            # Check Balance
             user = get_user(user_id)
             if user['balance'] < final_mmk:
                 bot.answer_callback_query(call.id, "❌ Insufficient Balance!", show_alert=True)
                 return
 
-            # Execute Buy
-            bot.edit_message_text("🔄 Processing Purchase...", user_id, call.message.message_id)
-            
+            bot.edit_message_text("🔄 Processing...", user_id, call.message.message_id)
             buy_resp = requests.get(f"{BASE_URL}/user/buy/activation/{country}/{operator}/{service}", headers=HEADERS).json()
             
             if 'phone' in buy_resp:
-                # Deduct Money
                 update_balance(user_id, -final_mmk)
-                
-                phone = buy_resp['phone']
-                oid = buy_resp['id']
-                
-                # Create Order Message
-                msg = (f"✅ **Order Successful!**\n"
-                       f"📱 Phone: `{phone}`\n"
-                       f"🌍 Country: {country.upper()}\n"
-                       f"💰 Deducted: {final_mmk} Ks\n"
-                       f"⏳ Waiting for SMS...")
-                
+                phone, oid = buy_resp['phone'], buy_resp['id']
+                msg = (f"✅ **Order Successful!**\n📱 Phone: `{phone}`\n🌍 Country: {country.upper()}\n💰 Deducted: {final_mmk} Ks\n⏳ Waiting for SMS...")
                 markup = types.InlineKeyboardMarkup()
-                # User only sees Cancel (No Ban)
                 markup.add(types.InlineKeyboardButton("❌ Cancel Order", callback_data=f"cancel|{oid}|{final_mmk}"))
-                
                 bot.send_message(user_id, msg, reply_markup=markup, parse_mode="Markdown")
-                
-                # Start SMS Thread
                 threading.Thread(target=check_sms_thread, args=(user_id, oid, final_mmk)).start()
             else:
-                bot.send_message(user_id, "❌ Purchase Failed. Try a different operator.")
-                
-        except Exception as e:
-            bot.send_message(user_id, f"Error: {e}")
+                bot.send_message(user_id, "❌ Purchase Failed.")
+        except Exception as e: bot.send_message(user_id, f"Error: {e}")
 
     elif action == 'cancel':
         oid, amount = data[1], int(data[2])
         resp = requests.get(f"{BASE_URL}/user/cancel/{oid}", headers=HEADERS).json()
         if resp.get('status') == 'CANCELED':
             update_balance(user_id, amount)
-            bot.send_message(user_id, f"✅ Order Canceled.\n💰 `{amount} Ks` has been refunded to your wallet.", parse_mode="Markdown")
+            bot.send_message(user_id, f"✅ Order Canceled.\n💰 `{amount} Ks` refunded.", parse_mode="Markdown")
         else:
-            bot.send_message(user_id, "⚠️ Unable to cancel (Maybe SMS arrived or expired).")
-
-# ---------------- SMS LOGIC (ENGLISH & AUTO REFUND) ----------------
+            bot.send_message(user_id, "⚠️ Unable to cancel (SMS may be received).")
 
 def check_sms_thread(user_id, order_id, cost_mmk):
-    # Check for 15 minutes (180 checks * 5 sec)
     for i in range(180):
         time.sleep(5)
         try:
             res = requests.get(f"{BASE_URL}/user/check/{order_id}", headers=HEADERS).json()
             status = res.get('status')
-            
             if status == 'RECEIVED':
                 code = res['sms'][0]['code']
-                msg_body = res['sms'][0].get('text', '')
-                bot.send_message(user_id, f"📩 **SMS RECEIVED!**\n\nCode: `{code}`\n\nMsg: {msg_body}", parse_mode="Markdown")
-                return # Job done
-            
-            elif status == 'CANCELED' or status == 'TIMEOUT':
-                return # Handled elsewhere or finished
-        except:
-            pass
-            
-    # If 15 minutes pass with no SMS -> Auto Cancel
+                msg = res['sms'][0].get('text', '')
+                bot.send_message(user_id, f"📩 **SMS RECEIVED!**\n\nCode: `{code}`\nMsg: {msg}", parse_mode="Markdown")
+                return
+            elif status == 'CANCELED' or status == 'TIMEOUT': return
+        except: pass
+    
     requests.get(f"{BASE_URL}/user/cancel/{order_id}", headers=HEADERS)
     update_balance(user_id, cost_mmk)
-    
-    # English Timeout Message with Suggestion
-    timeout_msg = (
-        f"⚠️ **Order Timeout**\n\n"
-        f"SMS code was not received within 15 minutes.\n"
-        f"✅ The order has been cancelled automatically.\n"
-        f"💰 `{cost_mmk} Ks` has been refunded to your balance.\n\n"
-        f"💡 **Suggestion:** Please try selecting a different country or choose a higher-priced operator for better quality."
-    )
-    bot.send_message(user_id, timeout_msg, parse_mode="Markdown")
+    bot.send_message(user_id, f"⚠️ **Timeout**\nOrder cancelled automatically.\n💰 `{cost_mmk} Ks` refunded.\n💡 Suggestion: Try higher price operator.", parse_mode="Markdown")
 
 if __name__ == "__main__":
     keep_alive()
