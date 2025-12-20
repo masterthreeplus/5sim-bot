@@ -28,7 +28,7 @@ HEADERS = {'Authorization': 'Bearer ' + API_KEY, 'Accept': 'application/json'}
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client['5sim_reseller_db']
 users_collection = db['users']
-orders_collection = db['orders'] # Order History Collection
+orders_collection = db['orders']
 
 def get_user(user_id):
     return users_collection.find_one({'_id': user_id})
@@ -69,7 +69,6 @@ def update_order_status(order_id, status, sms_text=None):
     orders_collection.update_one({'_id': order_id}, {'$set': update_data})
 
 def get_user_history(user_id, limit=5):
-    # Get last 5 orders, sorted by newest first
     return list(orders_collection.find({'user_id': user_id}).sort('timestamp', -1).limit(limit))
 
 # ---------------- FLASK SERVER ----------------
@@ -81,7 +80,11 @@ def keep_alive(): threading.Thread(target=run_web).start()
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-POPULAR_SERVICES = ['telegram', 'whatsapp', 'facebook', 'google', 'tiktok', 'viber', 'line', 'instagram']
+# UPDATED POPULAR SERVICES LIST
+POPULAR_SERVICES = [
+    'telegram', 'whatsapp', 'facebook', 'google', 'tiktok', 'viber', 
+    'steam', 'discord', 'amazon', 'openai', 'shopee', 'lazada', 'netflix'
+]
 
 # ---------------- FULL FLAG MAPPING (150+ Countries) ----------------
 FLAG_MAP = {
@@ -119,7 +122,6 @@ FLAG_MAP = {
 }
 
 def get_flag(country_name):
-    # Normalize name: remove spaces, lowercase
     clean_name = country_name.lower().replace(" ", "")
     return FLAG_MAP.get(clean_name, '🏳️')
 
@@ -233,15 +235,11 @@ def user_info(message):
         u = get_user(uid)
         
         if u:
-            # Basic Info
             msg = f"👤 **User Info**\nID: `{uid}`\nName: {u.get('name')}\nBalance: `{u.get('balance')} Ks`\n\n"
-            
-            # Fetch History
             history = get_user_history(uid, limit=5)
             if history:
                 msg += "📜 **Last 5 Orders:**\n"
                 for order in history:
-                    # Status Icons
                     status_icon = "⏳"
                     if order['status'] == 'COMPLETED': status_icon = "✅"
                     elif order['status'] == 'CANCELED': status_icon = "❌"
@@ -257,7 +255,6 @@ def user_info(message):
                             f"{sms_info}\n")
             else:
                 msg += "📜 **History:** No orders yet."
-                
             bot.reply_to(message, msg, parse_mode="Markdown")
         else:
             bot.reply_to(message, "❌ User not found.")
@@ -287,36 +284,17 @@ def main_menu(message):
         if user_id == ADMIN_ID:
             server_bal_rub = get_server_balance()
             server_bal_mmk = int(server_bal_rub * RUB_TO_MMK)
-            
             all_u = get_all_users_list()
             total_user_mmk = sum(u.get('balance', 0) for u in all_u)
-            
-            msg_text += (
-                f"\n\n⚙️ **Admin Dashboard:**\n"
-                f"━━━━━━━━━━━━━━━━━━\n"
-                f"🔌 **Server Balance:**\n"
-                f"   🇷🇺 `{server_bal_rub} RUB`\n"
-                f"   🇲🇲 `~{server_bal_mmk} MMK`\n\n"
-                f"👥 Total User Funds: `{total_user_mmk} Ks`"
-            )
+            msg_text += (f"\n\n⚙️ **Admin Dashboard:**\n━━━━━━━━━━━━━━━━━━\n"
+                         f"🔌 **Server Balance:**\n   🇷🇺 `{server_bal_rub} RUB`\n   🇲🇲 `~{server_bal_mmk} MMK`\n\n"
+                         f"👥 Total User Funds: `{total_user_mmk} Ks`")
         bot.reply_to(message, msg_text, parse_mode="Markdown")
         
     elif text == '💳 Top-up':
-        msg = (
-            f"💸 **To top-up your wallet, please contact Admin.**\n\n"
-            f"👤 Admin: @Shake0098\n"
-            f"🆔 Your ID: `{user_id}`\n\n"
-            f"💰 **Payment Methods:**\n\n"
-            f"🇲🇲 **Myanmar:**\n"
-            f"• KBZ Pay\n"
-            f"• Wave Pay\n"
-            f"• AYA Pay\n"
-            f"• UAB Pay\n\n"
-            f"🌍 **Global:**\n"
-            f"• Binance\n"
-            f"• Bybit\n"
-            f"• Any Crypto (USDT)"
-        )
+        msg = (f"💸 **To top-up your wallet, please contact Admin.**\n\n👤 Admin: @Shake0098\n🆔 Your ID: `{user_id}`\n\n"
+               f"💰 **Payment Methods:**\n\n🇲🇲 **Myanmar:**\n• KBZ Pay\n• Wave Pay\n• AYA Pay\n• UAB Pay\n\n"
+               f"🌍 **Global:**\n• Binance\n• Bybit\n• Any Crypto (USDT)")
         bot.reply_to(message, msg, parse_mode="Markdown")
         
     elif text == '🛒 Buy Number':
@@ -341,7 +319,6 @@ def show_services(chat_id, page=0, msg_id=None):
             start = (page - 1) * PER_PAGE
             end = start + PER_PAGE
             current_batch = services[start:end]
-            
             buttons = [types.InlineKeyboardButton(s, callback_data=f"srv|{s}") for s in current_batch]
             markup.add(*buttons)
             nav = []
@@ -351,7 +328,6 @@ def show_services(chat_id, page=0, msg_id=None):
             markup.add(types.InlineKeyboardButton("⬅️ Back to Popular", callback_data="page|0"))
             text = f"🌐 **All Services** (Page {page}/{total_pages}):"
         except: text = "Error fetching services."
-
     if msg_id: bot.edit_message_text(text, chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
     else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
 
@@ -362,7 +338,6 @@ def show_countries(chat_id, service, page=0, msg_id=None):
     try:
         resp = requests.get(f"{BASE_URL}/guest/prices?product={service}", headers=HEADERS).json()
         data_source = resp.get(service, {}) if service in resp else resp
-        
         countries = []
         for c_name, ops in data_source.items():
             if not isinstance(ops, dict): continue
@@ -377,17 +352,14 @@ def show_countries(chat_id, service, page=0, msg_id=None):
                 countries.append({'n': c_name, 'p': display_price, 's': total_stock})
         
         countries.sort(key=lambda x: x['p'])
-        
         if not countries:
             bot.send_message(chat_id, "❌ No stock available.")
             return
 
         PER_PAGE = 20
         total_pages = (len(countries) + PER_PAGE - 1) // PER_PAGE
-        
         if page < 0: page = 0
         if page >= total_pages: page = total_pages - 1
-        
         start = page * PER_PAGE
         end = start + PER_PAGE
         current_batch = countries[start:end]
@@ -399,17 +371,14 @@ def show_countries(chat_id, service, page=0, msg_id=None):
             markup.add(types.InlineKeyboardButton(btn_txt, callback_data=f"op|{c['n']}|{service}"))
         
         nav_btns = []
-        if page > 0:
-            nav_btns.append(types.InlineKeyboardButton("⬅️ Back", callback_data=f"cnt_pg|{service}|{page-1}"))
-        if end < len(countries):
-            nav_btns.append(types.InlineKeyboardButton("Next ➡️", callback_data=f"cnt_pg|{service}|{page+1}"))
+        if page > 0: nav_btns.append(types.InlineKeyboardButton("⬅️ Back", callback_data=f"cnt_pg|{service}|{page-1}"))
+        if end < len(countries): nav_btns.append(types.InlineKeyboardButton("Next ➡️", callback_data=f"cnt_pg|{service}|{page+1}"))
         markup.add(*nav_btns)
         markup.add(types.InlineKeyboardButton("⬅️ Back to Services", callback_data="page|0"))
         
         text = f"🌍 **{service.upper()}** - Select Country (Page {page+1}/{total_pages}):"
         if msg_id: bot.edit_message_text(text, chat_id, msg_id, reply_markup=markup, parse_mode="Markdown")
         else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode="Markdown")
-        
     except: bot.send_message(chat_id, "Error loading countries.")
 
 # ---------------- OPERATOR MENU ----------------
@@ -423,14 +392,11 @@ def show_operators(chat_id, country, service, msg_id):
         for op, det in data_source.items():
             if det['count'] > 0: valid_ops.append({'name': op, 'cost': det['cost'], 'count': det['count']})
         valid_ops.sort(key=lambda x: x['cost'])
-        
         flag = get_flag(country)
-        
         if valid_ops:
             best_price_rub = valid_ops[0]['cost']
             display_price = calculate_display_price(best_price_rub, chat_id)
             markup.add(types.InlineKeyboardButton(f"🎲 Any Operator (Auto) - {display_price} Ks", callback_data=f"buy|{country}|any|{service}"))
-        
         for op in valid_ops:
             d_price = calculate_display_price(op['cost'], chat_id)
             markup.add(types.InlineKeyboardButton(f"📶 {op['name'].upper()} - {d_price} Ks ({op['count']})", callback_data=f"buy|{country}|{op['name']}|{service}"))
@@ -482,21 +448,18 @@ def handle_callbacks(call):
                 update_balance(user_id, -final_mmk)
                 phone, oid = buy_resp['phone'], buy_resp['id']
                 flag = get_flag(country)
-                
-                # LOG ORDER TO DB (PENDING)
                 save_order(user_id, oid, phone, country, service, final_mmk, "PENDING")
                 
-                msg = (f"✅ **Order Successful!**\n"
-                       f"📱 Phone: `{phone}`\n"
-                       f"🌍 Country: {flag} {country.upper()}\n"
-                       f"💰 Deducted: {final_mmk} Ks\n"
-                       f"⏳ Waiting for SMS...\n\n"
+                msg = (f"✅ **Order Successful!**\n📱 Phone: `{phone}`\n🌍 Country: {flag} {country.upper()}\n"
+                       f"💰 Deducted: {final_mmk} Ks\n⏳ Waiting for SMS...\n\n"
                        f"_(If SMS is delayed or does not arrive, please try selecting a higher-priced operator for better quality.)_")
                 
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton("❌ Cancel Order", callback_data=f"cancel|{oid}|{final_mmk}"))
-                bot.send_message(user_id, msg, reply_markup=markup, parse_mode="Markdown")
-                threading.Thread(target=check_sms_thread, args=(user_id, oid, final_mmk)).start()
+                
+                # Pass Message ID to thread to edit it later
+                sent_msg = bot.send_message(user_id, msg, reply_markup=markup, parse_mode="Markdown")
+                threading.Thread(target=check_sms_thread, args=(user_id, oid, final_mmk, sent_msg.message_id, phone, country)).start()
             else:
                 bot.send_message(user_id, "❌ Purchase Failed. Try a different operator.")
         except Exception as e: bot.send_message(user_id, f"Error: {e}")
@@ -506,15 +469,14 @@ def handle_callbacks(call):
         resp = requests.get(f"{BASE_URL}/user/cancel/{oid}", headers=HEADERS).json()
         if resp.get('status') == 'CANCELED':
             update_balance(user_id, amount)
-            # UPDATE DB STATUS
             update_order_status(oid, "CANCELED")
-            
             bot.send_message(user_id, f"✅ Order Canceled.\n💰 `{amount} Ks` refunded.", parse_mode="Markdown")
         else:
             bot.send_message(user_id, "⚠️ Unable to cancel (SMS may be received).")
 
-def check_sms_thread(user_id, order_id, cost_mmk):
-    for i in range(180): # 15 minutes
+def check_sms_thread(user_id, order_id, cost_mmk, message_id, phone, country):
+    flag = get_flag(country)
+    for i in range(180): # 15 mins
         time.sleep(5)
         try:
             res = requests.get(f"{BASE_URL}/user/check/{order_id}", headers=HEADERS).json()
@@ -522,11 +484,21 @@ def check_sms_thread(user_id, order_id, cost_mmk):
             if status == 'RECEIVED':
                 code = res['sms'][0]['code']
                 msg = res['sms'][0].get('text', '')
-                
-                # UPDATE DB STATUS
                 update_order_status(order_id, "COMPLETED", sms_text=f"{code} - {msg}")
                 
+                # 1. Send SMS Code
                 bot.send_message(user_id, f"📩 **SMS RECEIVED!**\n\nCode: `{code}`\nMsg: {msg}", parse_mode="Markdown")
+                
+                # 2. Update Original Message to "Order Completed" and Remove Cancel Button
+                try:
+                    completed_msg = (f"✅ **Order Completed!**\n"
+                                     f"📱 Phone: `{phone}`\n"
+                                     f"🌍 Country: {flag} {country.upper()}\n"
+                                     f"💰 Deducted: {cost_mmk} Ks\n"
+                                     f"📩 SMS Code Received.")
+                    bot.edit_message_text(completed_msg, user_id, message_id, reply_markup=None, parse_mode="Markdown")
+                except: pass
+                
                 return
             elif status == 'CANCELED':
                 update_order_status(order_id, "CANCELED")
@@ -536,13 +508,9 @@ def check_sms_thread(user_id, order_id, cost_mmk):
                 return
         except: pass
     
-    # Timeout Auto-Cancel
     requests.get(f"{BASE_URL}/user/cancel/{order_id}", headers=HEADERS)
     update_balance(user_id, cost_mmk)
-    
-    # UPDATE DB STATUS
     update_order_status(order_id, "TIMEOUT")
-    
     bot.send_message(user_id, f"⚠️ **Timeout**\nOrder cancelled automatically.\n💰 `{cost_mmk} Ks` refunded.\n💡 Suggestion: Try higher price operator.", parse_mode="Markdown")
 
 if __name__ == "__main__":
