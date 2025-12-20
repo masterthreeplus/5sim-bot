@@ -14,6 +14,7 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN', '8534849448:AAHc6uG2QYrrZI46-oNl1EKlZbMq
 API_KEY = os.environ.get('SIM_API_KEY', 'eyJhbGciOiJSUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3OTc2NDYwMTIsImlhdCI6MTc2NjExMDAxMiwicmF5IjoiM2RlZDBiNTExNDc3ZjRkMzk4ZGM4NjA4MjYwMTM2NGQiLCJzdWIiOjM2NzEwNTF9.yo5lYq1tDiZklFRfR1_EeIT8bRVO6ZyO4DdsM-7AnNioVq7HVK28LPPjqEMPuk9Wm5qpPvUwhrJYR2hxyW1-1qMoCO3o633jsGTjzKElRd3cbBT4MizeCLyYaOvWgEh3-JnQBpZz-5WkKBVxKognLzsrilhQT6-fZzDMdfcNlrPRiOiXFdNGTE6ZGMk_0H2faINZ8U2mc6WZVLocB41EmuL3gp7Ra7jZ8PWfmD4-mnttLiRU9y0GxNslaQvnWBphvbN2g-Z_oMhyMPCrTx6DwD39Xnx1vyBc-UbQeAGGDCs50G-jNwSDPHLjss6yNQrryOQbKKMSE5bmBum4fWPEdg')
 ADMIN_ID = int(os.environ.get('ADMIN_ID', '5127528224'))
 MONGO_URI = os.environ.get('MONGO_URI', 'mongodb+srv://kntdb:dbKnt2Sim@5simdb.mtxe58u.mongodb.net/?appName=5simDB')
+
 # Economics
 RUB_TO_MMK = 57.38 
 PROFIT_PERCENT = 25  # User gets +25% price markup
@@ -40,7 +41,6 @@ def register_user(user_id, first_name):
         })
 
 def update_balance(user_id, amount):
-    # MongoDB $inc increments value (negative amount means deduct)
     users_collection.update_one({'_id': user_id}, {'$inc': {'balance': amount}})
 
 def get_all_users_list():
@@ -55,7 +55,7 @@ def keep_alive(): threading.Thread(target=run_web).start()
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-POPULAR_SERVICES = ['telegram', 'whatsapp', 'facebook', 'google', 'tiktok', 'viber', 'line', 'instagram','paypal','signal']
+POPULAR_SERVICES = ['telegram', 'whatsapp', 'facebook', 'google', 'tiktok', 'viber', 'line', 'instagram']
 
 # ---------------- HELPER FUNCTIONS ----------------
 
@@ -75,7 +75,7 @@ def get_server_balance():
     except:
         return 0.0
 
-# ---------------- ADMIN COMMANDS (FIXED) ----------------
+# ---------------- ADMIN COMMANDS ----------------
 
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
@@ -135,7 +135,7 @@ def add_money(message):
             try: bot.send_message(user_id, f"💰 Deposit Received: `{amount} Ks`", parse_mode="Markdown")
             except: pass
         else:
-            bot.reply_to(message, "❌ User ID not found in database.")
+            bot.reply_to(message, "❌ User ID not found.")
     except: bot.reply_to(message, "Error. Use: `/add 123456 1000`")
 
 @bot.message_handler(commands=['cut'])
@@ -149,7 +149,7 @@ def cut_money(message):
         
         user = get_user(user_id)
         if user:
-            update_balance(user_id, -amount) # Negative amount to deduct
+            update_balance(user_id, -amount)
             bot.reply_to(message, f"✂️ Deducted `{amount} Ks` from User `{user_id}`.", parse_mode="Markdown")
             try: bot.send_message(user_id, f"📉 Balance Deducted: `{amount} Ks`", parse_mode="Markdown")
             except: pass
@@ -177,8 +177,8 @@ def user_info(message):
 def start(message):
     register_user(message.from_user.id, message.from_user.first_name)
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add('🛒 Buy Number', '👤 My Profile', '💳 Top-up') 
-    
+    # Changed '💎 Top-up' to '💳 Top-up' to match your request
+    markup.add('🛒 Buy Number', '👤 My Profile', '💳 Top-up')
     bot.send_message(message.chat.id, f"Welcome {message.from_user.first_name}! 🌍\nSelect an option below:", reply_markup=markup)
 
 @bot.message_handler(func=lambda msg: True)
@@ -194,7 +194,7 @@ def main_menu(message):
         # Standard View
         msg_text = f"👤 **User Profile**\n\n🆔 ID: `{user_id}`\n👤 Name: {user.get('name')}\n💰 **Wallet Balance: {bal} Ks**"
         
-        # Admin View (Includes Server Balance in RUB & MMK)
+        # Admin View
         if user_id == ADMIN_ID:
             server_bal_rub = get_server_balance()
             server_bal_mmk = int(server_bal_rub * RUB_TO_MMK)
@@ -210,11 +210,25 @@ def main_menu(message):
                 f"   🇲🇲 `~{server_bal_mmk} MMK`\n\n"
                 f"👥 Total User Funds: `{total_user_mmk} Ks`"
             )
-            
         bot.reply_to(message, msg_text, parse_mode="Markdown")
         
     elif text == '💳 Top-up':
-        bot.reply_to(message, f"💸 To top-up your wallet, please contact Admin.\n\n@Shake0098\n\n💰Payment Method: \n\n🇲🇲Myanmar\n\nKBZ Pay\nWave Pay\nAYA Pay\nUAB Pay\n\n🌐🌍Global:\nBinance\n\Bybit\n\Any other Crypto\n\nYour ID: `{user_id}`", parse_mode="Markdown")
+        msg = (
+            f"💸 **To top-up your wallet, please contact Admin.**\n\n"
+            f"👤 Admin: @Shake0098\n"
+            f"🆔 Your ID: `{user_id}`\n\n"
+            f"💰 **Payment Methods:**\n\n"
+            f"🇲🇲 **Myanmar:**\n"
+            f"• KBZ Pay\n"
+            f"• Wave Pay\n"
+            f"• AYA Pay\n"
+            f"• UAB Pay\n\n"
+            f"🌍 **Global:**\n"
+            f"• Binance\n"
+            f"• Bybit\n"
+            f"• Crypto (USDT)"
+        )
+        bot.reply_to(message, msg, parse_mode="Markdown")
         
     elif text == '🛒 Buy Number':
         show_services(user_id, 0)
@@ -355,7 +369,6 @@ def handle_callbacks(call):
                 update_balance(user_id, -final_mmk)
                 phone, oid = buy_resp['phone'], buy_resp['id']
                 
-                # Success Message with English Suggestion at bottom
                 msg = (f"✅ **Order Successful!**\n"
                        f"📱 Phone: `{phone}`\n"
                        f"🌍 Country: {country.upper()}\n"
@@ -381,7 +394,7 @@ def handle_callbacks(call):
             bot.send_message(user_id, "⚠️ Unable to cancel (SMS may be received).")
 
 def check_sms_thread(user_id, order_id, cost_mmk):
-    for i in range(180):
+    for i in range(180): # 15 minutes
         time.sleep(5)
         try:
             res = requests.get(f"{BASE_URL}/user/check/{order_id}", headers=HEADERS).json()
@@ -394,6 +407,7 @@ def check_sms_thread(user_id, order_id, cost_mmk):
             elif status == 'CANCELED' or status == 'TIMEOUT': return
         except: pass
     
+    # Auto-cancel after timeout
     requests.get(f"{BASE_URL}/user/cancel/{order_id}", headers=HEADERS)
     update_balance(user_id, cost_mmk)
     bot.send_message(user_id, f"⚠️ **Timeout**\nOrder cancelled automatically.\n💰 `{cost_mmk} Ks` refunded.\n💡 Suggestion: Try higher price operator.", parse_mode="Markdown")
