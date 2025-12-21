@@ -15,19 +15,21 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # ---------------- SECURITY CHECK & CONFIG ----------------
-# Environment Variables မရှိရင် Error တက်ပြီး ရပ်သွားပါမယ် (Security)
 def get_env_var(name):
     val = os.environ.get(name)
     if not val:
+        # ဒီနေရာမှာ Error တက်ရင် Render > Environment မှာ variable နာမည်မှန်မမှန် ပြန်စစ်ပါ
         logger.critical(f"❌ Missing Environment Variable: {name}")
         raise ValueError(f"Missing {name}")
     return val
 
-BOT_TOKEN = get_env_var('8497073173:AAFKVvHGM3922nxgzXBZJ_jNIIELeXZY6l0')
-API_KEY = get_env_var('eyJhbGciOiJSUzUxMiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3OTc2NDYwMTIsImlhdCI6MTc2NjExMDAxMiwicmF5IjoiM2RlZDBiNTExNDc3ZjRkMzk4ZGM4NjA4MjYwMTM2NGQiLCJzdWIiOjM2NzEwNTF9.yo5lYq1tDiZklFRfR1_EeIT8bRVO6ZyO4DdsM-7AnNioVq7HVK28LPPjqEMPuk9Wm5qpPvUwhrJYR2hxyW1-1qMoCO3o633jsGTjzKElRd3cbBT4MizeCLyYaOvWgEh3-JnQBpZz-5WkKBVxKognLzsrilhQT6-fZzDMdfcNlrPRiOiXFdNGTE6ZGMk_0H2faINZ8U2mc6WZVLocB41EmuL3gp7Ra7jZ8PWfmD4-mnttLiRU9y0GxNslaQvnWBphvbN2g-Z_oMhyMPCrTx6DwD39Xnx1vyBc-UbQeAGGDCs50G-jNwSDPHLjss6yNQrryOQbKKMSE5bmBum4fWPEdg')
-MONGO_URI = get_env_var('mongodb+srv://kntdb:dbKnt2Sim@5simdb.mtxe58u.mongodb.net/?appName=5simDB')
+# [FIXED HERE] ဒီနေရာမှာ Token အစစ် မထည့်ရပါ၊ နာမည်ပဲ ထည့်ရပါမယ်
+BOT_TOKEN = get_env_var('BOT_TOKEN')
+API_KEY = get_env_var('SIM_API_KEY')
+MONGO_URI = get_env_var('MONGO_URI')
+
 # Optional vars
-ADMIN_ID = int(os.environ.get('5127528224', '0')) # 0 if not set
+ADMIN_ID = int(os.environ.get('ADMIN_ID', '0')) 
 PORT = int(os.environ.get('PORT', 8080))
 
 # Economics
@@ -39,9 +41,9 @@ BASE_URL = "https://5sim.net/v1"
 HEADERS = {'Authorization': 'Bearer ' + API_KEY, 'Accept': 'application/json'}
 
 # ---------------- THREAD LOCK & CACHE ----------------
-db_lock = threading.Lock() # Database race condition ကာကွယ်ရန်
-price_cache = {} # API Rate Limit ကာကွယ်ရန် Cache
-CACHE_DURATION = 600 # 10 Minutes cache
+db_lock = threading.Lock() 
+price_cache = {} 
+CACHE_DURATION = 600 
 
 # ---------------- DATABASE SETUP ----------------
 try:
@@ -54,7 +56,7 @@ except Exception as e:
     logger.critical(f"❌ Database Connection Failed: {e}")
     raise e
 
-# ---------------- DATABASE FUNCTIONS (SAFE MODE) ----------------
+# ---------------- DATABASE FUNCTIONS ----------------
 
 def get_user(user_id):
     return users_collection.find_one({'_id': user_id})
@@ -69,14 +71,13 @@ def register_user(user_id, first_name):
         })
 
 def update_balance(user_id, amount):
-    # Thread Lock သုံးပြီး ပိုက်ဆံအနုတ်မပြအောင် ကာကွယ်ခြင်း
     with db_lock:
         user = get_user(user_id)
         if not user: return False
         
         new_balance = user.get('balance', 0) + amount
         if new_balance < 0:
-            return False # Not enough money (Double Check)
+            return False 
             
         users_collection.update_one({'_id': user_id}, {'$inc': {'balance': amount}})
         return True
@@ -110,19 +111,14 @@ def get_user_history(user_id, limit=5):
 # ---------------- PRICE CACHING SYSTEM ----------------
 def get_cached_prices(product):
     current_time = time.time()
-    
-    # Check if data exists and is fresh (less than 10 mins old)
     if product in price_cache:
         cached_data = price_cache[product]
         if current_time - cached_data['timestamp'] < CACHE_DURATION:
             return cached_data['data']
-    
-    # If not in cache or expired, fetch from API
     try:
         resp = requests.get(f"{BASE_URL}/guest/prices?product={product}", headers=HEADERS)
         if resp.status_code == 200:
             data = resp.json()
-            # Save to cache
             price_cache[product] = {
                 'timestamp': current_time,
                 'data': data
@@ -130,8 +126,7 @@ def get_cached_prices(product):
             return data
     except Exception as e:
         logger.error(f"API Error: {e}")
-    
-    return {} # Return empty if fail
+    return {}
 
 # ---------------- FLASK SERVER ----------------
 app = Flask(__name__)
@@ -148,7 +143,7 @@ POPULAR_SERVICES = [
     'steam', 'discord', 'amazon', 'openai', 'shopee', 'lazada', 'netflix'
 ]
 
-# ---------------- FULL FLAG MAPPING (150+ Countries) ----------------
+# ---------------- FULL FLAG MAPPING ----------------
 FLAG_MAP = {
     'afghanistan': '🇦🇫', 'albania': '🇦🇱', 'algeria': '🇩🇿', 'angola': '🇦🇴', 'argentina': '🇦🇷',
     'armenia': '🇦🇲', 'australia': '🇦🇺', 'austria': '🇦🇹', 'azerbaijan': '🇦🇿', 'bahrain': '🇧🇭',
@@ -224,7 +219,6 @@ def admin_panel(message):
         "`/cut [ID] [Amount]` - Deduct Balance\n"
         "`/info [ID]` - Check User History"
     )
-    
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("👥 Get User List", callback_data="admin_get_users"))
     bot.reply_to(message, msg, reply_markup=markup, parse_mode="Markdown")
@@ -258,7 +252,6 @@ def add_money(message):
         user_id = int(parts[1])
         amount = int(parts[2])
         
-        # Safe Balance Update
         if update_balance(user_id, amount):
             bot.reply_to(message, f"✅ Added `{amount} Ks` to User `{user_id}`.", parse_mode="Markdown")
             try: bot.send_message(user_id, f"💰 Deposit Received: `{amount} Ks`", parse_mode="Markdown")
@@ -276,7 +269,6 @@ def cut_money(message):
         user_id = int(parts[1])
         amount = int(parts[2])
         
-        # Safe Balance Update (Negative)
         if update_balance(user_id, -amount):
             bot.reply_to(message, f"✂️ Deducted `{amount} Ks` from User `{user_id}`.", parse_mode="Markdown")
             try: bot.send_message(user_id, f"📉 Balance Deducted: `{amount} Ks`", parse_mode="Markdown")
@@ -304,10 +296,8 @@ def user_info(message):
                     if order['status'] == 'COMPLETED': status_icon = "✅"
                     elif order['status'] == 'CANCELED': status_icon = "❌"
                     elif order['status'] == 'TIMEOUT': status_icon = "⚠️"
-                    
                     flag = get_flag(order['country'])
                     sms_info = f"\n📩 SMS: `{order['sms']}`" if order.get('sms') else ""
-                    
                     msg += (f"━━━━━━━━━━━━━━━━\n"
                             f"🆔 `{order['_id']}` | {status_icon} {order['status']}\n"
                             f"{flag} {order['country'].upper()} | {order['service'].upper()}\n"
@@ -370,8 +360,6 @@ def show_services(chat_id, page=0, msg_id=None):
         markup.add(types.InlineKeyboardButton("See All Services ⤵️", callback_data="page|1"))
         text = "🔥 **Popular Services:**"
     else:
-        # Use Cached Prices API (guest/products/any/any is heavy, ideally cache this too)
-        # For simplicity, we fetch but rely on previous logic
         try:
             resp = requests.get(f"{BASE_URL}/guest/products/any/any", headers=HEADERS).json()
             services = [k for k, v in resp.items() if v.get('Qty', 0) > 0]
@@ -398,10 +386,8 @@ def show_services(chat_id, page=0, msg_id=None):
 def show_countries(chat_id, service, page=0, msg_id=None):
     bot.send_chat_action(chat_id, 'typing')
     try:
-        # USE CACHE HERE
-        resp = get_cached_prices(service) # Cached function
+        resp = get_cached_prices(service)
         data_source = resp.get(service, {}) if service in resp else resp
-        
         countries = []
         for c_name, ops in data_source.items():
             if not isinstance(ops, dict): continue
@@ -451,7 +437,6 @@ def show_countries(chat_id, service, page=0, msg_id=None):
 
 def show_operators(chat_id, country, service, msg_id):
     try:
-        # USE CACHE HERE
         resp = get_cached_prices(service)
         data_source = resp.get(service, {}).get(country, {})
         markup = types.InlineKeyboardMarkup(row_width=1)
@@ -489,7 +474,7 @@ def handle_callbacks(call):
     elif action == 'buy':
         country, operator, service = data[1], data[2], data[3]
         try:
-            # Re-fetch LIVE price (Do NOT use cache for buying to ensure stock exists)
+            # Re-fetch LIVE price
             p_data = requests.get(f"{BASE_URL}/guest/prices?product={service}", headers=HEADERS).json()
             ops = p_data.get(service, {}).get(country, {})
             real_rub_cost = float('inf')
@@ -501,29 +486,25 @@ def handle_callbacks(call):
                 if operator in ops and ops[operator]['count'] > 0: real_rub_cost = ops[operator]['cost']
             
             if real_rub_cost == float('inf'):
-                bot.answer_callback_query(call.id, "❌ Stock unavailable (Just sold out).", show_alert=True)
+                bot.answer_callback_query(call.id, "❌ Stock unavailable.", show_alert=True)
                 return
 
             final_mmk = calculate_display_price(real_rub_cost, user_id)
             user = get_user(user_id)
             
-            # Balance Check
             if user.get('balance', 0) < final_mmk:
                 bot.answer_callback_query(call.id, "❌ Insufficient Balance!", show_alert=True)
                 return
 
             bot.edit_message_text("🔄 Processing...", user_id, call.message.message_id)
             
-            # API BUY CALL
             buy_resp = requests.get(f"{BASE_URL}/user/buy/activation/{country}/{operator}/{service}", headers=HEADERS).json()
             
             if 'phone' in buy_resp:
-                # Deduct Balance with LOCK
                 if update_balance(user_id, -final_mmk):
                     phone, oid = buy_resp['phone'], buy_resp['id']
                     flag = get_flag(country)
                     
-                    # LOG ORDER
                     save_order(user_id, oid, phone, country, service, final_mmk, "PENDING")
                     
                     msg = (f"✅ **Order Successful!**\n"
@@ -539,8 +520,7 @@ def handle_callbacks(call):
                     sent_msg = bot.send_message(user_id, msg, reply_markup=markup, parse_mode="Markdown")
                     threading.Thread(target=check_sms_thread, args=(user_id, oid, final_mmk, sent_msg.message_id, phone, country)).start()
                 else:
-                    # Rare case: Balance check passed but deduction failed (race condition)
-                    bot.send_message(user_id, "❌ Transaction Failed (Concurrency Error).")
+                    bot.send_message(user_id, "❌ Transaction Failed.")
             else:
                 bot.send_message(user_id, "❌ Purchase Failed. Try a different operator.")
         except Exception as e:
@@ -559,7 +539,7 @@ def handle_callbacks(call):
 
 def check_sms_thread(user_id, order_id, cost_mmk, message_id, phone, country):
     flag = get_flag(country)
-    for i in range(180): # 15 minutes
+    for i in range(180): # 15 mins
         time.sleep(5)
         try:
             res = requests.get(f"{BASE_URL}/user/check/{order_id}", headers=HEADERS).json()
@@ -569,11 +549,9 @@ def check_sms_thread(user_id, order_id, cost_mmk, message_id, phone, country):
                 msg = res['sms'][0].get('text', '')
                 
                 update_order_status(order_id, "COMPLETED", sms_text=f"{code} - {msg}")
-                
-                # Send Code
                 bot.send_message(user_id, f"📩 **SMS RECEIVED!**\n\nCode: `{code}`\nMsg: {msg}", parse_mode="Markdown")
                 
-                # Remove Cancel Button
+                # Remove Cancel Button & Show Completed
                 try:
                     completed_msg = (f"✅ **Order Completed!**\n"
                                      f"📱 Phone: `{phone}`\n"
