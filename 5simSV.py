@@ -202,6 +202,134 @@ def get_server_balance():
 
 # ---------------- ADMIN COMMANDS ----------------
 
+# ---------------- BROADCAST SYSTEM (NEW) ----------------
+
+from telebot.apihelper import ApiTelegramException
+
+# Admin State for Broadcast
+broadcast_data = {}
+
+@bot.message_handler(commands=['broadcast'])
+def cmd_broadcast(message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    msg = bot.reply_to(message, "📢 **Broadcast Setup**\n\nPlease send the message (Text or Photo) you want to send to all users.\n\nType /cancel to stop.", parse_mode="Markdown")
+    bot.register_next_step_handler(msg, process_broadcast_content)
+
+def process_broadcast_content(message):
+    if message.from_user.id != ADMIN_ID: return
+    if message.text == '/cancel':
+        bot.reply_to(message, "❌ Broadcast cancelled.")
+        return
+
+    content_type = 'text'
+    content = message.text
+    caption = None
+    
+    if message.content_type == 'photo':
+        content_type = 'photo'
+        content = message.photo[-1].file_id # Get highest quality photo
+        caption = message.caption
+
+    # Confirm Dialog
+    broadcast_data[ADMIN_ID] = {
+        'type': content_type,
+        'content': content,
+        'caption': caption
+    }
+    
+    user_count = users_collection.count_documents({})
+    
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton(f"✅ Send to {user_count} Users", callback_data="confirm_broadcast"),
+        types.InlineKeyboardButton("❌ Cancel", callback_data="cancel_broadcast")
+    )
+    
+    preview_text = "photo" if content_type == 'photo' else content[:50] + "..."
+    bot.reply_to(message, f"📢 **Confirm Broadcast**\n\nType: {content_type.upper()}\nPreview: {preview_text}\n\nTarget: {user_count} Users", reply_markup=markup, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data in ['confirm_broadcast', 'cancel_broadcast'])
+def handle_broadcast_callback(call):
+    if call.data == 'cancel_broadcast':
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        bot.answer_callback_query(call.id, "Cancelled")
+        broadcast_data.pop(ADMIN_ID, None)
+    
+    elif call.data == 'confirm_broadcast':
+        data = broadcast_data.get(ADMIN_ID)
+        if not data:
+            bot.answer_callback_query(call.id, "Session expired.")
+            return
+
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        bot.answer_callback_query(call.id, "Broadcasting started...")
+        
+        # Start Thread
+        threading.Thread(target=run_broadcast_thread, args=(call.message.chat.id, data)).start()
+
+def run_broadcast_thread(admin_chat_id, data):
+    users = get_all_users_list()
+    total = len(users)
+    sent = 0
+    failed = 0
+    blocked = 0
+    
+    status_msg = bot.send_message(admin_chat_id, f"🚀 **Broadcasting Started...**\n\nTotal: {total}\n✅ Sent: 0\n❌ Failed/Blocked: 0")
+    
+    start_time = time.time()
+    
+    for index, user in enumerate(users):
+        try:
+            if data['type'] == 'text':
+                bot.send_message(user['_id'], data['content'], parse_mode="Markdown")
+            elif data['type'] == 'photo':
+                bot.send_photo(user['_id'], data['content'], caption=data['caption'], parse_mode="Markdown")
+            
+            sent += 1
+        except ApiTelegramException as e:
+            if e.result_json['error_code'] == 403: # User blocked bot
+                blocked += 1
+            else:
+                failed += 1
+        except Exception:
+            failed += 1
+            
+        # Update Progress every 20 users (to avoid spamming API)
+        if index % 20 == 0:
+            try:
+                bot.edit_message_text(
+                    f"🚀 **Broadcasting in Progress...**\n\n"
+                    f"📊 Progress: {index}/{total}\n"
+                    f"✅ Sent: {sent}\n"
+                    f"🚫 Blocked: {blocked}\n"
+                    f"❌ Failed: {failed}",
+                    admin_chat_id, status_msg.message_id, parse_mode="Markdown"
+                )
+            except: pass
+        
+        # Rate Limit Safety (20 msgs per second max)
+        time.sleep(0.05)
+
+    # Final Report
+    duration = round(time.time() - start_time, 2)
+    final_text = (
+        f"✅ **Broadcast Completed!**\n\n"
+        f"⏱ Time: {duration}s\n"
+        f"👥 Total Users: {total}\n"
+        f"✅ Success: {sent}\n"
+        f"🚫 Blocked (Skipped): {blocked}\n"
+        f"❌ Failed: {failed}"
+    )
+    
+    try:
+        bot.edit_message_text(final_text, admin_chat_id, status_msg.message_id, parse_mode="Markdown")
+    except:
+        bot.send_message(admin_chat_id, final_text, parse_mode="Markdown")
+
+# ---------------- END BROADCAST SYSTEM ----------------
+
+
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     if message.from_user.id != ADMIN_ID: return
