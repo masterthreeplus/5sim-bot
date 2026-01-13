@@ -5,6 +5,7 @@ import threading
 import os
 import certifi
 import logging
+from threading import Thread
 from flask import Flask
 from telebot import types
 from pymongo import MongoClient
@@ -702,6 +703,23 @@ def check_sms_thread(user_id, order_id, cost_mmk, message_id, phone, country):
     update_order_status(order_id, "TIMEOUT")
     bot.send_message(user_id, f"⚠️ **Timeout**\nOrder cancelled automatically.\n💰 `{cost_mmk} Ks` refunded.\n💡 Suggestion: Try higher price operator.", parse_mode="Markdown")
 
+# --- ဒီနေရာကစပြီး ကူးထည့်ပါ ---
+# Flask Web Server Setup for Koyeb
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
 if __name__ == "__main__":
-    keep_alive()
+    # Web Server ကို သီးသန့် Thread နဲ့ run မယ်
+    t = Thread(target=run_web_server)
+    t.start()
+    
+    # Bot ကို run မယ် (မိတ်ဆွေ မူလ settings အတိုင်း)
     bot.infinity_polling(timeout=10, long_polling_timeout=5)
