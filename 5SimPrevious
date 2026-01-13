@@ -1,0 +1,492 @@
+import telebot
+import requests
+import time
+import threading
+import os
+import certifi
+import logging
+from flask import Flask
+from telebot import types
+from pymongo import MongoClient
+from datetime import datetime
+
+# ---------------- LOGGING SETUP ----------------
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# ---------------- SECURITY CHECK & CONFIG ----------------
+def get_env_var(name):
+    val = os.environ.get(name)
+    if not val:
+        # ဒီနေရာမှာ Error တက်ရင် Render > Environment မှာ variable နာမည်မှန်မမှန် ပြန်စစ်ပါ
+        logger.critical(f"❌ Missing Environment Variable: {name}")
+        raise ValueError(f"Missing {name}")
+    return val
+
+# [FIXED HERE] ဒီနေရာမှာ Token အစစ် မထည့်ရပါ၊ နာမည်ပဲ ထည့်ရပါမယ်
+BOT_TOKEN = get_env_var('BOT_TOKEN')
+API_KEY = get_env_var('SIM_API_KEY')
+MONGO_URI = get_env_var('MONGO_URI')
+
+# Optional vars
+ADMIN_ID = int(os.environ.get('ADMIN_ID', '0')) 
+PORT = int(os.environ.get('PORT', 8080))
+
+# Economics
+RUB_TO_MMK = 57.38
+PROFIT_PERCENT = 25
+
+# 5sim API
+BASE_URL = "https://5sim.net/v1"
+HEADERS = {'Authorization': 'Bearer ' + API_KEY, 'Accept': 'application/json'}
+
+# ---------------- THREAD LOCK & CACHE ----------------
+db_lock = threading.Lock() 
+price_cache = {} 
+CACHE_DURATION = 600 
+
+# ---------------- DATABASE SETUP ----------------
+try:
+    client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+    db = client['5sim_reseller_db']
+    users_collection = db['users']
+    orders_collection = db['orders']
+    logger.info("✅ Connected to MongoDB")
+except Exception as e:
+    logger.critical(f"❌ Database Connection Failed: {e}")
+    raise e
+
+# ---------------- DATABASE FUNCTIONS ----------------
+
+def get_user(user_id):
+    return users_collection.find_one({'_id': user_id})
+
+def register_user(user_id, first_name):
+    if not get_user(user_id):
+        users_collection.insert_one({
+            '_id': user_id,
+            'name': first_name,
+            'balance': 0,
+            'joined_at': time.time()
+        })
+
+def update_balance(user_id, amount):
+    with db_lock:
+        user = get_user(user_id)
+        if not user: return False
+        
+        new_balance = user.get('balance', 0) + amount
+        if new_balance < 0:
+            return False 
+            
+        users_collection.update_one({'_id': user_id}, {'$inc': {'balance': amount}})
+        return True
+
+def get_all_users_list():
+    return list(users_collection.find())
+
+# --- ORDER HISTORY ---
+def save_order(user_id, order_id, phone, country, service, cost, status="PENDING"):
+    orders_collection.insert_one({
+        '_id': order_id,
+        'user_id': user_id,
+        'phone': phone,
+        'country': country,
+        'service': service,
+        'cost': cost,
+        'status': status,
+        'sms': None,
+        'timestamp': datetime.now()
+    })
+
+def update_order_status(order_id, status, sms_text=None):
+    update_data = {'status': status}
+    if sms_text:
+        update_data['sms'] = sms_text
+    orders_collection.update_one({'_id': order_id}, {'$set': update_data})
+
+def get_user_history(user_id, limit=5):
+    return list(orders_collection.find({'user_id': user_id}).sort('timestamp', -1).limit(limit))
+
+# ---------------- PRICE CACHING SYSTEM ----------------
+def get_cached_prices(product):
+    current_time = time.time()
+    if product in price_cache:
+        cached_data = price_cache[product]
+        if current_time - cached_data['timestamp'] < CACHE_DURATION:
+            return cached_data['data']
+    try:
+        resp = requests.get(f"{BASE_URL}/guest/prices?product={product}", headers=HEADERS)
+        if resp.status_code == 200:
+            data = resp.json()
+            price_cache[product] = {
+                'timestamp': current_time,
+                'data': data
+            }
+            return data
+    except Exception as e:
+        logger.error(f"API Error: {e}")
+    return {}
+
+# ---------------- FLASK SERVER ----------------
+app = Flask(__name__)
+@app.route('/')
+def home(): return "Bot is Running Securely!"
+def run_web(): app.run(host='0.0.0.0', port=PORT)
+def keep_alive(): threading.Thread(target=run_web, daemon=True).start()
+
+bot = telebot.TeleBot(BOT_TOKEN)
+
+# Popular Services
+POPULAR_SERVICES = [
+    'telegram', 'whatsapp', 'facebook', 'google', 'tiktok', 'viber', 
+    'steam', 'discord', 'amazon', 'openai', 'shopee', 'lazada', 'netflix'
+]
+
+# ---------------- FULL FLAG MAPPING ----------------
+FLAG_MAP = {
+    'afghanistan': '🇦🇫', 'albania': '🇦🇱', 'algeria': '🇩🇿', 'angola': '🇦🇴', 'argentina': '🇦🇷',
+    'armenia': '🇦🇲', 'australia': '🇦🇺', 'austria': '🇦🇹', 'azerbaijan': '🇦🇿', 'bahrain': '🇧🇭',
+    'bangladesh': '🇧🇩', 'belarus': '🇧🇾', 'belgium': '🇧🇪', 'benin': '🇧🇯', 'bolivia': '🇧🇴',
+    'bosnia': '🇧🇦', 'brazil': '🇧🇷', 'bulgaria': '🇧🇬', 'burkinafaso': '🇧🇫', 'burundi': '🇧🇮',
+    'cambodia': '🇰🇭', 'cameroon': '🇨🇲', 'canada': '🇨🇦', 'chad': '🇹🇩', 'chile': '🇨🇱',
+    'china': '🇨🇳', 'colombia': '🇨🇴', 'congo': '🇨🇬', 'croatia': '🇭🇷', 'cyprus': '🇨🇾',
+    'czech': '🇨🇿', 'denmark': '🇩🇰', 'djibouti': '🇩🇯', 'dominican': '🇩🇴', 'ecuador': '🇪🇨',
+    'egypt': '🇪🇬', 'england': '🇬🇧', 'equatorialguinea': '🇬🇶', 'estonia': '🇪🇪', 'ethiopia': '🇪🇹',
+    'finland': '🇫🇮', 'france': '🇫🇷', 'gabon': '🇬🇦', 'gambia': '🇬🇲', 'georgia': '🇬🇪',
+    'germany': '🇩🇪', 'ghana': '🇬🇭', 'greece': '🇬🇷', 'guatemala': '🇬🇹', 'guinea': '🇬🇳',
+    'guineabissau': '🇬🇼', 'guyana': '🇬🇾', 'haiti': '🇭🇹', 'honduras': '🇭🇳', 'hongkong': '🇭🇰',
+    'hungary': '🇭🇺', 'india': '🇮🇳', 'indonesia': '🇮🇩', 'iran': '🇮🇷', 'iraq': '🇮🇶',
+    'ireland': '🇮🇪', 'israel': '🇮🇱', 'italy': '🇮🇹', 'ivorycoast': '🇨🇮', 'jamaica': '🇯🇲',
+    'japan': '🇯🇵', 'jordan': '🇯🇴', 'kazakhstan': '🇰🇿', 'kenya': '🇰🇪', 'kuwait': '🇰🇼',
+    'kyrgyzstan': '🇰🇬', 'laos': '🇱🇦', 'latvia': '🇱🇻', 'lebanon': '🇱🇧', 'lesotho': '🇱🇸',
+    'liberia': '🇱🇷', 'libya': '🇱🇾', 'lithuania': '🇱🇹', 'luxembourg': '🇱🇺', 'macau': '🇲🇴',
+    'madagascar': '🇲🇬', 'malawi': '🇲🇼', 'malaysia': '🇲🇾', 'maldives': '🇲🇻', 'mali': '🇲🇱',
+    'mauritania': '🇲🇷', 'mauritius': '🇲🇺', 'mexico': '🇲🇽', 'moldova': '🇲🇩', 'mongolia': '🇲🇳',
+    'montenegro': '🇲🇪', 'morocco': '🇲🇦', 'mozambique': '🇲🇿', 'myanmar': '🇲🇲', 'namibia': '🇳🇦',
+    'nepal': '🇳🇵', 'netherlands': '🇳🇱', 'newzealand': '🇳🇿', 'nicaragua': '🇳🇮', 'niger': '🇳🇪',
+    'nigeria': '🇳🇬', 'northmacedonia': '🇲🇰', 'norway': '🇳🇴', 'oman': '🇴🇲', 'pakistan': '🇵🇰',
+    'palestine': '🇵🇸', 'panama': '🇵🇦', 'papuanewguinea': '🇵🇬', 'paraguay': '🇵🇾', 'peru': '🇵🇪',
+    'philippines': '🇵🇭', 'poland': '🇵🇱', 'portugal': '🇵🇹', 'qatar': '🇶🇦', 'romania': '🇷🇴',
+    'russia': '🇷🇺', 'rwanda': '🇷🇼', 'saudiarabia': '🇸🇦', 'senegal': '🇸🇳', 'serbia': '🇷🇸',
+    'sierraleone': '🇸🇱', 'singapore': '🇸🇬', 'slovakia': '🇸🇰', 'slovenia': '🇸🇮', 'somalia': '🇸🇴',
+    'southafrica': '🇿🇦', 'spain': '🇪🇸', 'srilanka': '🇱🇰', 'sudan': '🇸🇩', 'suriname': '🇸🇷',
+    'swaziland': '🇸🇿', 'sweden': '🇸🇪', 'switzerland': '🇨🇭', 'syria': '🇸🇾', 'taiwan': '🇹🇼',
+    'tajikistan': '🇹🇯', 'tanzania': '🇹🇿', 'thailand': '🇹🇭', 'timorleste': '🇹🇱', 'togo': '🇹🇬',
+    'tunisia': '🇹🇳', 'turkey': '🇹🇷', 'turkmenistan': '🇹🇲', 'uganda': '🇺🇬', 'ukraine': '🇺🇦',
+    'uae': '🇦🇪', 'uk': '🇬🇧', 'usa': '🇺🇸', 'uruguay': '🇺🇾', 'uzbekistan': '🇺🇿',
+    'venezuela': '🇻🇪', 'vietnam': '🇻🇳', 'yemen': '🇾🇪', 'zambia': '🇿🇲', 'zimbabwe': '🇿🇼'
+}
+
+def get_flag(country_name):
+    clean_name = country_name.lower().replace(" ", "")
+    return FLAG_MAP.get(clean_name, '🏳️')
+
+# ---------------- HELPER FUNCTIONS ----------------
+
+def calculate_display_price(rub_price, user_id):
+    rub_price = float(rub_price)
+    base_mmk = rub_price * RUB_TO_MMK
+    if user_id == ADMIN_ID:
+        return int(base_mmk)
+    else:
+        marked_up = base_mmk * (1 + PROFIT_PERCENT / 100)
+        return int(marked_up)
+
+def get_server_balance():
+    try:
+        resp = requests.get(f"{BASE_URL}/user/profile", headers=HEADERS).json()
+        return float(resp.get('balance', 0))
+    except:
+        return 0.0
+
+# ---------------- ADMIN COMMANDS ----------------
+
+# ---------------- BROADCAST SYSTEM (NEW) ----------------
+
+from telebot.apihelper import ApiTelegramException
+
+# Admin State for Broadcast
+broadcast_data = {}
+
+@bot.message_handler(commands=['broadcast'])
+def cmd_broadcast(message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    msg = bot.reply_to(message, "📢 **Broadcast Setup**\n\nPlease send the message (Text or Photo) you want to send to all users.\n\nType /cancel to stop.", parse_mode="Markdown")
+    bot.register_next_step_handler(msg, process_broadcast_content)
+
+def process_broadcast_content(message):
+    if message.from_user.id != ADMIN_ID: return
+    if message.text == '/cancel':
+        bot.reply_to(message, "❌ Broadcast cancelled.")
+        return
+
+    content_type = 'text'
+    content = message.text
+    caption = None
+    
+    if message.content_type == 'photo':
+        content_type = 'photo'
+        content = message.photo[-1].file_id # Get highest quality photo
+        caption = message.caption
+
+    # Confirm Dialog
+    broadcast_data[ADMIN_ID] = {
+        'type': content_type,
+        'content': content,
+        'caption': caption
+    }
+    
+    user_count = users_collection.count_documents({})
+    
+    markup = types.InlineKeyboardMarkup()
+    markup.add(
+        types.InlineKeyboardButton(f"✅ Send to {user_count} Users", callback_data="confirm_broadcast"),
+        types.InlineKeyboardButton("❌ Cancel", callback_data="cancel_broadcast")
+    )
+    
+    preview_text = "photo" if content_type == 'photo' else content[:50] + "..."
+    bot.reply_to(message, f"📢 **Confirm Broadcast**\n\nType: {content_type.upper()}\nPreview: {preview_text}\n\nTarget: {user_count} Users", reply_markup=markup, parse_mode="Markdown")
+
+@bot.callback_query_handler(func=lambda call: call.data in ['confirm_broadcast', 'cancel_broadcast'])
+def handle_broadcast_callback(call):
+    if call.data == 'cancel_broadcast':
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        bot.answer_callback_query(call.id, "Cancelled")
+        broadcast_data.pop(ADMIN_ID, None)
+    
+    elif call.data == 'confirm_broadcast':
+        data = broadcast_data.get(ADMIN_ID)
+        if not data:
+            bot.answer_callback_query(call.id, "Session expired.")
+            return
+
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        bot.answer_callback_query(call.id, "Broadcasting started...")
+        
+        # Start Thread
+        threading.Thread(target=run_broadcast_thread, args=(call.message.chat.id, data)).start()
+
+def run_broadcast_thread(admin_chat_id, data):
+    users = get_all_users_list()
+    total = len(users)
+    sent = 0
+    failed = 0
+    blocked = 0
+    
+    status_msg = bot.send_message(admin_chat_id, f"🚀 **Broadcasting Started...**\n\nTotal: {total}\n✅ Sent: 0\n❌ Failed/Blocked: 0")
+    
+    start_time = time.time()
+    
+    for index, user in enumerate(users):
+        try:
+            if data['type'] == 'text':
+                bot.send_message(user['_id'], data['content'], parse_mode="Markdown")
+            elif data['type'] == 'photo':
+                bot.send_photo(user['_id'], data['content'], caption=data['caption'], parse_mode="Markdown")
+            
+            sent += 1
+        except ApiTelegramException as e:
+            if e.result_json['error_code'] == 403: # User blocked bot
+                blocked += 1
+            else:
+                failed += 1
+        except Exception:
+            failed += 1
+            
+        # Update Progress every 20 users (to avoid spamming API)
+        if index % 20 == 0:
+            try:
+                bot.edit_message_text(
+                    f"🚀 **Broadcasting in Progress...**\n\n"
+                    f"📊 Progress: {index}/{total}\n"
+                    f"✅ Sent: {sent}\n"
+                    f"🚫 Blocked: {blocked}\n"
+                    f"❌ Failed: {failed}",
+                    admin_chat_id, status_msg.message_id, parse_mode="Markdown"
+                )
+            except: pass
+        
+        # Rate Limit Safety (20 msgs per second max)
+        time.sleep(0.05)
+
+    # Final Report
+    duration = round(time.time() - start_time, 2)
+    final_text = (
+        f"✅ **Broadcast Completed!**\n\n"
+        f"⏱ Time: {duration}s\n"
+        f"👥 Total Users: {total}\n"
+        f"✅ Success: {sent}\n"
+        f"🚫 Blocked (Skipped): {blocked}\n"
+        f"❌ Failed: {failed}"
+    )
+    
+    try:
+        bot.edit_message_text(final_text, admin_chat_id, status_msg.message_id, parse_mode="Markdown")
+    except:
+        bot.send_message(admin_chat_id, final_text, parse_mode="Markdown")
+
+# ---------------- END BROADCAST SYSTEM ----------------
+
+
+@bot.message_handler(commands=['admin'])
+def admin_panel(message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    all_users = get_all_users_list()
+    total_holdings = sum(u.get('balance', 0) for u in all_users)
+    
+    msg = (
+        "👑 **Admin Control Panel**\n\n"
+        f"👥 Total Users: `{len(all_users)}`\n"
+        f"💰 Total User Holdings: `{total_holdings} Ks`\n\n"
+        "**Commands:**\n"
+        "`/users` - Get User List\n"
+        "`/add [ID] [Amount]` - Add Balance\n"
+        "`/cut [ID] [Amount]` - Deduct Balance\n"
+        "`/info [ID]` - Check User History"
+    )
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("👥 Get User List", callback_data="admin_get_users"))
+    bot.reply_to(message, msg, reply_markup=markup, parse_mode="Markdown")
+
+@bot.message_handler(commands=['users'])
+def cmd_get_users(message):
+    if message.from_user.id != ADMIN_ID: return
+    send_user_list(message.chat.id)
+
+def send_user_list(chat_id):
+    users = get_all_users_list()
+    if not users:
+        bot.send_message(chat_id, "No users found.")
+        return
+
+    msg_chunk = "📋 **User List:**\n\n"
+    for u in users:
+        line = f"🆔 `{u['_id']}` | {u.get('name', 'Unknown')} | 💰 `{u.get('balance', 0)} Ks`\n"
+        if len(msg_chunk) + len(line) > 3500:
+            bot.send_message(chat_id, msg_chunk, parse_mode="Markdown")
+            msg_chunk = ""
+        msg_chunk += line
+    if msg_chunk: bot.send_message(chat_id, msg_chunk, parse_mode="Markdown")
+
+@bot.message_handler(commands=['add'])
+def add_money(message):
+    if message.from_user.id != ADMIN_ID: return
+    try:
+        parts = message.text.split()
+        if len(parts) != 3: raise ValueError
+        user_id = int(parts[1])
+        amount = int(parts[2])
+        
+        if update_balance(user_id, amount):
+            bot.reply_to(message, f"✅ Added `{amount} Ks` to User `{user_id}`.", parse_mode="Markdown")
+            try: bot.send_message(user_id, f"💰 Deposit Received: `{amount} Ks`", parse_mode="Markdown")
+            except: pass
+        else:
+            bot.reply_to(message, "❌ User ID not found.")
+    except: bot.reply_to(message, "Error. Use: `/add 123456 1000`")
+
+@bot.message_handler(commands=['cut'])
+def cut_money(message):
+    if message.from_user.id != ADMIN_ID: return
+    try:
+        parts = message.text.split()
+        if len(parts) != 3: raise ValueError
+        user_id = int(parts[1])
+        amount = int(parts[2])
+        
+        if update_balance(user_id, -amount):
+            bot.reply_to(message, f"✂️ Deducted `{amount} Ks` from User `{user_id}`.", parse_mode="Markdown")
+            try: bot.send_message(user_id, f"📉 Balance Deducted: `{amount} Ks`", parse_mode="Markdown")
+            except: pass
+        else:
+            bot.reply_to(message, "❌ User ID not found or Insufficient Balance.")
+    except: bot.reply_to(message, "Error. Use: `/cut 123456 1000`")
+
+@bot.message_handler(commands=['info'])
+def user_info(message):
+    if message.from_user.id != ADMIN_ID: return
+    try:
+        parts = message.text.split()
+        if len(parts) != 2: raise ValueError
+        uid = int(parts[1])
+        u = get_user(uid)
+        
+        if u:
+            msg = f"👤 **User Info**\nID: `{uid}`\nName: {u.get('name')}\nBalance: `{u.get('balance')} Ks`\n\n"
+            history = get_user_history(uid, limit=5)
+            if history:
+                msg += "📜 **Last 5 Orders:**\n"
+                for order in history:
+                    status_icon = "⏳"
+                    if order['status'] == 'COMPLETED': status_icon = "✅"
+                    elif order['status'] == 'CANCELED': status_icon = "❌"
+                    elif order['status'] == 'TIMEOUT': status_icon = "⚠️"
+                    flag = get_flag(order['country'])
+                    sms_info = f"\n📩 SMS: `{order['sms']}`" if order.get('sms') else ""
+                    msg += (f"━━━━━━━━━━━━━━━━\n"
+                            f"🆔 `{order['_id']}` | {status_icon} {order['status']}\n"
+                            f"{flag} {order['country'].upper()} | {order['service'].upper()}\n"
+                            f"📱 `{order['phone']}` | 💰 {order['cost']} Ks"
+                            f"{sms_info}\n")
+            else:
+                msg += "📜 **History:** No orders yet."
+            bot.reply_to(message, msg, parse_mode="Markdown")
+        else:
+            bot.reply_to(message, "❌ User not found.")
+    except: bot.reply_to(message, "Error. Use: `/info 123456`")
+
+# ---------------- USER COMMANDS ----------------
+
+@bot.message_handler(commands=['start'])
+def start(message):
+    register_user(message.from_user.id, message.from_user.first_name)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    markup.add('🛒 Buy Number', '👤 My Profile', '💳 Top-up')
+    bot.send_message(message.chat.id, f"Welcome {message.from_user.first_name}! 🌍\nSelect an option below:", reply_markup=markup)
+
+@bot.message_handler(func=lambda msg: True)
+def main_menu(message):
+    user_id = message.from_user.id
+    text = message.text
+    
+    if text == '👤 My Profile':
+        register_user(user_id, message.from_user.first_name)
+        user = get_user(user_id)
+        bal = user.get('balance', 0)
+        
+        msg_text = f"👤 **User Profile**\n\n🆔 ID: `{user_id}`\n👤 Name: {user.get('name')}\n💰 **Wallet Balance: {bal} Ks**"
+        
+        if user_id == ADMIN_ID:
+            server_bal_rub = get_server_balance()
+            server_bal_mmk = int(server_bal_rub * RUB_TO_MMK)
+            all_u = get_all_users_list()
+            total_user_mmk = sum(u.get('balance', 0) for u in all_u)
+            msg_text += (f"\n\n⚙️ **Admin Dashboard:**\n━━━━━━━━━━━━━━━━━━\n"
+                         f"🔌 **Server Balance:**\n   🇷🇺 `{server_bal_rub} RUB`\n   🇲🇲 `~{server_bal_mmk} MMK`\n\n"
+                         f"👥 Total User Funds: `{total_user_mmk} Ks`")
+        bot.reply_to(message, msg_text, parse_mode="Markdown")
+        
+    elif text == '💳 Top-up':
+        msg = (f"💸 **To top-up your wallet, please contact Admin.**\n\n👤 Admin: @Shake0098\n🆔 Your ID: `{user_id}`\n\n"
+               f"💰 **Payment Methods:**\n\n🇲🇲 **Myanmar:**\n• KBZ Pay\n• Wave Pay\n• AYA Pay\n• UAB Pay\n\n"
+               f"🌍 **Global:**\n• Binance\n• Bybit\n• Any Crypto (USDT)")
+        bot.reply_to(message, msg, parse_mode="Markdown")
+        
+    elif text == '🛒 Buy Number':
+        show_services(user_id, 0)
+
+# ---------------- SERVICE MENU (CACHED) ----------------
+
+def show_services(chat_id, page=0, msg_id=None):
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    if page == 0:
+        buttons = [types.InlineKeyboardButton(f"📱 {s.capitalize()}", callback_data=f"srv|{s}") for s in POPULAR_SERVICES]
+        markup.add(*buttons)
+        markup.add(types.InlineKeyboardButton("See All Services ⤵️", callback_data="page|1"))
+        text = "🔥 **Popular Services:**"
+    else:
+        try:
+            resp = requests.get(f"{BASE_URL}/guest/products
