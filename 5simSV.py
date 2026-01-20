@@ -10,6 +10,7 @@ from flask import Flask
 from telebot import types
 from pymongo import MongoClient
 from datetime import datetime
+from telebot.apihelper import ApiTelegramException
 
 # ---------------- LOGGING SETUP ----------------
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -32,8 +33,8 @@ MONGO_URI = get_env_var('MONGO_URI')
 ADMIN_ID = int(os.environ.get('ADMIN_ID', '0')) 
 PORT = int(os.environ.get('PORT', 8080))
 
-# Economics (No Conversion, Just Markup)
-PROFIT_PERCENT = 25 # User gets +25% markup on Server Price
+# Economics (Direct Server Price + Profit)
+PROFIT_PERCENT = 25 
 
 # 5sim API
 BASE_URL = "https://5sim.net/v1"
@@ -60,14 +61,28 @@ except Exception as e:
 def get_user(user_id):
     return users_collection.find_one({'_id': user_id})
 
-def register_user(user_id, first_name):
-    if not get_user(user_id):
+def register_or_update_user(user, status="active"):
+    user_id = user.id
+    username = f"@{user.username}" if user.username else "N/A"
+    first_name = user.first_name
+    
+    existing = users_collection.find_one({'_id': user_id})
+    
+    if not existing:
         users_collection.insert_one({
             '_id': user_id,
+            'username': username,
             'name': first_name,
             'balance': 0.0, 
+            'status': status,
             'joined_at': time.time()
         })
+    else:
+        # Update info if changed
+        users_collection.update_one(
+            {'_id': user_id}, 
+            {'$set': {'name': first_name, 'username': username, 'status': status}}
+        )
 
 def update_balance(user_id, amount):
     with db_lock:
@@ -109,7 +124,7 @@ def update_order_status(order_id, status, sms_text=None):
 def get_user_history(user_id, limit=5):
     return list(orders_collection.find({'user_id': user_id}).sort('timestamp', -1).limit(limit))
 
-# ---------------- PRICE CALCULATION (DIRECT) ----------------
+# ---------------- PRICE CALCULATION ----------------
 def get_cached_prices(product):
     current_time = time.time()
     if product in price_cache:
@@ -130,13 +145,10 @@ def get_cached_prices(product):
     return {}
 
 def calculate_display_price(api_price, user_id):
-    # DIRECT SERVER PRICE (No Currency Conversion)
     base_price = float(api_price)
-    
     if user_id == ADMIN_ID:
-        return round(base_price, 3) # Admin sees Raw Price
+        return round(base_price, 3)
     else:
-        # User sees Price + Profit %
         marked_up = base_price * (1 + PROFIT_PERCENT / 100)
         return round(marked_up, 3)
 
@@ -194,8 +206,7 @@ def get_flag(country_name):
     clean_name = country_name.lower().replace(" ", "")
     return FLAG_MAP.get(clean_name, '🏳️')
 
-# ---------------- BROADCAST SYSTEM ----------------
-from telebot.apihelper import ApiTelegramException
+# ---------------- BROADCAST SYSTEM (AUTO BLOCK DETECTION) ----------------
 broadcast_data = {}
 
 @bot.message_handler(commands=['broadcast'])
@@ -213,7 +224,6 @@ def process_broadcast_content(message):
     content_type = 'text'
     content = message.text
     caption = None
-    
     if message.content_type == 'photo':
         content_type = 'photo'
         content = message.photo[-1].file_id 
@@ -249,10 +259,19 @@ def run_broadcast_thread(admin_chat_id, data):
         try:
             if data['type'] == 'text': bot.send_message(user['_id'], data['content'], parse_mode="Markdown")
             elif data['type'] == 'photo': bot.send_photo(user['_id'], data['content'], caption=data['caption'], parse_mode="Markdown")
+            
+            # If successful, ensure status is active
+            if user.get('status') == 'blocked':
+                users_collection.update_one({'_id': user['_id']}, {'$set': {'status': 'active'}})
             sent += 1
+            
         except ApiTelegramException as e:
-            if e.result_json['error_code'] == 403: blocked += 1
-            else: failed += 1
+            if e.result_json['error_code'] == 403: 
+                blocked += 1
+                # UPDATE USER STATUS TO BLOCKED
+                users_collection.update_one({'_id': user['_id']}, {'$set': {'status': 'blocked'}})
+            else: 
+                failed += 1
         except: failed += 1
         
         if index % 20 == 0:
@@ -263,7 +282,7 @@ def run_broadcast_thread(admin_chat_id, data):
         
     bot.send_message(admin_chat_id, f"✅ Done!\nTotal: {total}\nSent: {sent}\nBlocked: {blocked}\nFailed: {failed}")
 
-# ---------------- ADMIN COMMANDS (Direct $) ----------------
+# ---------------- ADMIN COMMANDS (ADVANCED CSV) ----------------
 
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
@@ -277,14 +296,14 @@ def admin_panel(message):
         f"👥 Total Users: `{len(all_users)}`\n"
         f"💰 Total User Holdings: `${round(total_holdings, 2)}`\n\n"
         "**Commands:**\n"
-        "`/users` - Download User CSV\n"
+        "`/users` - Download Advanced User CSV\n"
         "`/add [ID] [Amount]` - Add Balance ($)\n"
         "`/cut [ID] [Amount]` - Deduct Balance ($)\n"
         "`/info [ID]` - Check User\n"
         "`/broadcast` - Announcement"
     )
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("📥 Download User List (CSV)", callback_data="admin_download_csv"))
+    markup.add(types.InlineKeyboardButton("📥 Download Advanced CSV", callback_data="admin_download_csv"))
     bot.reply_to(message, msg, reply_markup=markup, parse_mode="Markdown")
 
 @bot.message_handler(commands=['users'])
@@ -295,7 +314,7 @@ def cmd_download_users(message):
 @bot.callback_query_handler(func=lambda call: call.data == 'admin_download_csv')
 def handle_csv_callback(call):
     if call.message.chat.id != ADMIN_ID: return
-    bot.answer_callback_query(call.id, "Generating CSV...")
+    bot.answer_callback_query(call.id, "Generating Advanced CSV...")
     send_users_csv(call.message.chat.id)
 
 def send_users_csv(chat_id):
@@ -304,19 +323,43 @@ def send_users_csv(chat_id):
         bot.send_message(chat_id, "No users found.")
         return
 
-    filename = f"users_{int(time.time())}.csv"
+    filename = f"users_data_{int(time.time())}.csv"
     
     try:
+        # Calculate Total Spend for each user
+        # Pipeline: Match orders with status='COMPLETED', group by user_id, sum cost
+        pipeline = [
+            {"$match": {"status": "COMPLETED"}},
+            {"$group": {"_id": "$user_id", "total_spent": {"$sum": "$cost"}}}
+        ]
+        spend_data = list(orders_collection.aggregate(pipeline))
+        # Convert list to dictionary for fast lookup {user_id: total_spent}
+        spend_map = {item['_id']: item['total_spent'] for item in spend_data}
+
         with open(filename, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['User ID', 'Name', 'Balance ($)', 'Joined Date'])
+            # CSV Headers
+            writer.writerow(['User ID', 'Username', 'Name', 'Balance ($)', 'Total Spend ($)', 'Status', 'Joined Date'])
             
             for u in users:
+                uid = u['_id']
                 joined = datetime.fromtimestamp(u.get('joined_at', 0)).strftime('%Y-%m-%d %H:%M:%S')
-                writer.writerow([u['_id'], u.get('name', 'Unknown'), u.get('balance', 0), joined])
+                username = u.get('username', 'N/A')
+                status = u.get('status', 'active').upper()
+                total_spent = round(spend_map.get(uid, 0.0), 3)
+                
+                writer.writerow([
+                    uid, 
+                    username, 
+                    u.get('name', 'Unknown'), 
+                    u.get('balance', 0), 
+                    total_spent,
+                    status, 
+                    joined
+                ])
         
         with open(filename, 'rb') as f:
-            bot.send_document(chat_id, f, caption=f"📋 Total Users: {len(users)}")
+            bot.send_document(chat_id, f, caption=f"📋 Advanced User Data\n👥 Total Users: {len(users)}")
             
     except Exception as e:
         bot.send_message(chat_id, f"Error generating CSV: {e}")
@@ -369,7 +412,10 @@ def user_info(message):
         
         if u:
             bal = float(u.get('balance', 0))
-            msg = f"👤 **User Info**\nID: `{uid}`\nName: {u.get('name')}\nBalance: `${bal}`\n\n"
+            username = u.get('username', 'N/A')
+            status = u.get('status', 'active').upper()
+            msg = f"👤 **User Info**\nID: `{uid}`\nUser: {username}\nName: {u.get('name')}\nStat: `{status}`\nBal: `${bal}`\n\n"
+            
             history = get_user_history(uid, limit=5)
             if history:
                 msg += "📜 **Last 5 Orders:**\n"
@@ -396,7 +442,9 @@ def user_info(message):
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    register_user(message.from_user.id, message.from_user.first_name)
+    # Capture username and update status
+    register_or_update_user(message.from_user)
+    
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add('🛒 Buy Number', '👤 My Profile', '💳 Top-up')
     bot.send_message(message.chat.id, f"Welcome {message.from_user.first_name}! 🌍\nSelect an option below:", reply_markup=markup)
@@ -404,10 +452,10 @@ def start(message):
 @bot.message_handler(func=lambda msg: True)
 def main_menu(message):
     user_id = message.from_user.id
+    register_or_update_user(message.from_user) # Update info on every interaction
     text = message.text
     
     if text == '👤 My Profile':
-        register_user(user_id, message.from_user.first_name)
         user = get_user(user_id)
         bal = float(user.get('balance', 0))
         
