@@ -164,7 +164,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 # Popular Services
 POPULAR_SERVICES = [
     'telegram', 'whatsapp', 'facebook', 'google', 'tiktok', 'viber', 
-    'steam', 'discord', 'amazon', 'openai', 'shopee', 'lazada', 'netflix'
+    'steam', 'discord', 'amazon', 'openai', 'shopee', 'lazada', 'netflix', 'signal'
 ]
 
 # ---------------- FULL FLAG MAPPING ----------------
