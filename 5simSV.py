@@ -471,7 +471,7 @@ def main_menu(message):
         bot.reply_to(message, msg_text, parse_mode="Markdown")
         
     elif text == '💳 Top-up':
-        msg = (f"💸 **To top-up your wallet, please contact Admin.**\n\n👤 Admin: @Shake0098\n🆔 Your ID: `{user_id}`\n\n"
+        msg = (f"💸 **To top-up your wallet, please contact Admin.**\n\n👤 Admin: @gloryme777\n🆔 Your ID: `{user_id}`\n\n"
                f"💰 **Payment Methods:**\n\n"
                f"🌍 **Global:**\n• Binance (USDT)\n• Crypto\n• Perfect Money")
         bot.reply_to(message, msg, parse_mode="Markdown")
